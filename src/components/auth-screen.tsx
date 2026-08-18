@@ -6,6 +6,7 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleShee
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Checkbox } from '@/components/checkbox';
+import { LockIcon, MailIcon } from '@/components/icons/field-icons';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
@@ -128,24 +129,34 @@ export function AuthScreen() {
             />
           )}
 
-          <TextInput
-            style={[
-              styles.input,
-              { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text },
-            ]}
-            placeholder="Email address"
-            placeholderTextColor={theme.textSecondary}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            value={email}
-            onChangeText={setEmail}
-          />
+          <View style={styles.inputWrapper}>
+            <View style={styles.inputIcon}>
+              <MailIcon color={theme.textSecondary} size={18} />
+            </View>
+            <TextInput
+              style={[
+                styles.input,
+                styles.inputWithIcon,
+                { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text },
+              ]}
+              placeholder="Email address"
+              placeholderTextColor={theme.textSecondary}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              value={email}
+              onChangeText={setEmail}
+            />
+          </View>
 
           {mode !== 'forgotPassword' && (
             <View style={styles.passwordWrapper}>
+              <View style={styles.inputIcon}>
+                <LockIcon color={theme.textSecondary} size={18} />
+              </View>
               <TextInput
                 style={[
                   styles.input,
+                  styles.inputWithIcon,
                   styles.passwordInput,
                   { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text },
                 ]}
@@ -231,6 +242,9 @@ const styles = StyleSheet.create({
   subtitle: { textAlign: 'center', marginBottom: Spacing.two, alignSelf: 'stretch' },
   subtitleLink: { fontSize: 14, lineHeight: 20 },
   input: { alignSelf: 'stretch', borderWidth: 1, borderRadius: 28, paddingVertical: Spacing.three + Spacing.half, paddingHorizontal: Spacing.four },
+  inputWrapper: { alignSelf: 'stretch', justifyContent: 'center' },
+  inputIcon: { position: 'absolute', left: Spacing.four, top: 0, bottom: 0, justifyContent: 'center', zIndex: 1 },
+  inputWithIcon: { paddingLeft: Spacing.four + 18 + Spacing.two },
   passwordWrapper: { alignSelf: 'stretch', justifyContent: 'center' },
   passwordInput: { paddingRight: Spacing.four + Spacing.three },
   passwordToggle: { position: 'absolute', right: Spacing.three, paddingVertical: Spacing.two, paddingHorizontal: Spacing.one },

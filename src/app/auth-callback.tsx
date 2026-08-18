@@ -2,9 +2,10 @@ import { Image } from 'expo-image';
 import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LockIcon } from '@/components/icons/field-icons';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
@@ -149,28 +150,40 @@ export default function AuthCallbackScreen() {
               <ThemedText themeColor="textSecondary" style={styles.subtitle}>
                 Choose a new password for your account.
               </ThemedText>
-              <TextInput
-                style={[
-                  styles.input,
-                  { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text },
-                ]}
-                placeholder="New password"
-                placeholderTextColor={theme.textSecondary}
-                secureTextEntry
-                value={password}
-                onChangeText={setPassword}
-              />
-              <TextInput
-                style={[
-                  styles.input,
-                  { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text },
-                ]}
-                placeholder="Confirm new password"
-                placeholderTextColor={theme.textSecondary}
-                secureTextEntry
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-              />
+              <View style={styles.inputWrapper}>
+                <View style={styles.inputIcon}>
+                  <LockIcon color={theme.textSecondary} size={18} />
+                </View>
+                <TextInput
+                  style={[
+                    styles.input,
+                    styles.inputWithIcon,
+                    { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text },
+                  ]}
+                  placeholder="New password"
+                  placeholderTextColor={theme.textSecondary}
+                  secureTextEntry
+                  value={password}
+                  onChangeText={setPassword}
+                />
+              </View>
+              <View style={styles.inputWrapper}>
+                <View style={styles.inputIcon}>
+                  <LockIcon color={theme.textSecondary} size={18} />
+                </View>
+                <TextInput
+                  style={[
+                    styles.input,
+                    styles.inputWithIcon,
+                    { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text },
+                  ]}
+                  placeholder="Confirm new password"
+                  placeholderTextColor={theme.textSecondary}
+                  secureTextEntry
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                />
+              </View>
               <Pressable
                 style={[styles.submit, { backgroundColor: theme.accent, opacity: submitting ? 0.6 : 1 }]}
                 disabled={submitting}
@@ -244,6 +257,9 @@ const styles = StyleSheet.create({
   subtitle: { textAlign: 'center', marginBottom: Spacing.two, alignSelf: 'stretch' },
   spinner: { marginTop: Spacing.two },
   input: { alignSelf: 'stretch', borderWidth: 1, borderRadius: 28, paddingVertical: Spacing.three + Spacing.half, paddingHorizontal: Spacing.four },
+  inputWrapper: { alignSelf: 'stretch', justifyContent: 'center' },
+  inputIcon: { position: 'absolute', left: Spacing.four, top: 0, bottom: 0, justifyContent: 'center', zIndex: 1 },
+  inputWithIcon: { paddingLeft: Spacing.four + 18 + Spacing.two },
   submit: {
     alignSelf: 'center',
     alignItems: 'center',

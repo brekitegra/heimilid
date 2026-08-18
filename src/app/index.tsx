@@ -1,51 +1,79 @@
+import { useState } from 'react';
 import { Platform, StyleSheet } from 'react-native';
+import Animated, { FadeIn, FadeOut, SlideInRight, SlideOutRight } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ChoresIcon, FinancesIcon, KidsIcon, PetsIcon } from '@/components/icons/section-icons';
+import { HubCard } from '@/components/hub-card';
+import { ChoresSection } from '@/components/sections/chores-section';
+import { FinancesSection } from '@/components/sections/finances-section';
+import { KidsSection } from '@/components/sections/kids-section';
+import { PetsSection } from '@/components/sections/pets-section';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { WebBadge } from '@/components/web-badge';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useHousehold } from '@/hooks/use-household';
 
-const UPCOMING_SECTIONS = [
-  { title: 'Chores', hint: 'Assign and track household chores' },
-  { title: 'Pets', hint: 'Feeding, vet visits, and care' },
-  { title: 'Finances', hint: 'Accounts and recurring bills' },
-  { title: 'Kids', hint: "Practices and activity schedules" },
+type Section = 'chores' | 'pets' | 'finances' | 'kids';
+
+const SECTIONS: { key: Section; title: string; hint: string; Icon: typeof ChoresIcon }[] = [
+  { key: 'chores', title: 'Chores', hint: 'Assign and track household chores', Icon: ChoresIcon },
+  { key: 'pets', title: 'Pets', hint: 'Feeding, vet visits, and care', Icon: PetsIcon },
+  { key: 'finances', title: 'Finances', hint: 'Accounts and recurring bills', Icon: FinancesIcon },
+  { key: 'kids', title: 'Kids', hint: 'Practices and activity schedules', Icon: KidsIcon },
 ];
+
+const SECTION_COMPONENTS: Record<Section, (props: { onBack: () => void }) => React.JSX.Element> = {
+  chores: ChoresSection,
+  pets: PetsSection,
+  finances: FinancesSection,
+  kids: KidsSection,
+};
 
 export default function HomeScreen() {
   const { household } = useHousehold();
+  const [activeSection, setActiveSection] = useState<Section | null>(null);
+
+  const ActiveSectionComponent = activeSection ? SECTION_COMPONENTS[activeSection] : null;
 
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <ThemedText type="small" themeColor="textSecondary">
-            Welcome home
-          </ThemedText>
-          <ThemedText type="title" style={styles.title}>
-            {household?.name ?? 'Heimilið'}
-          </ThemedText>
-        </ThemedView>
-
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          {UPCOMING_SECTIONS.map((section, index) => (
-            <ThemedView
-              key={section.title}
-              style={[styles.row, index > 0 && styles.rowDivider]}>
-              <ThemedText type="smallBold">{section.title}</ThemedText>
+        {ActiveSectionComponent ? (
+          <Animated.View
+            key={activeSection}
+            entering={SlideInRight.duration(220)}
+            exiting={SlideOutRight.duration(180)}
+            style={styles.sectionWrapper}>
+            <ActiveSectionComponent onBack={() => setActiveSection(null)} />
+          </Animated.View>
+        ) : (
+          <Animated.View entering={FadeIn.duration(220)} exiting={FadeOut.duration(150)} style={styles.hub}>
+            <ThemedView style={styles.heroSection}>
               <ThemedText type="small" themeColor="textSecondary">
-                {section.hint}
+                Welcome home
+              </ThemedText>
+              <ThemedText type="title" style={styles.title}>
+                {household?.name ?? 'Heimilið'}
               </ThemedText>
             </ThemedView>
-          ))}
-        </ThemedView>
-        <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>
-          Coming soon
-        </ThemedText>
 
-        {Platform.OS === 'web' && <WebBadge />}
+            <ThemedView style={styles.cardList}>
+              {SECTIONS.map((section) => (
+                <HubCard
+                  key={section.key}
+                  title={section.title}
+                  hint={section.hint}
+                  Icon={section.Icon}
+                  onPress={() => setActiveSection(section.key)}
+                />
+              ))}
+            </ThemedView>
+
+            {Platform.OS === 'web' && <WebBadge />}
+          </Animated.View>
+        )}
       </SafeAreaView>
     </ThemedView>
   );
@@ -60,14 +88,15 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
     paddingBottom: BottomTabInset + Spacing.three,
     maxWidth: MaxContentWidth,
+    alignSelf: 'stretch',
     // The web tab bar (app-tabs.web.tsx) is position: absolute over the
     // page, so content needs its own top offset to clear it.
     ...Platform.select({ web: { paddingTop: Spacing.six } }),
   },
+  hub: { flex: 1, alignItems: 'center', gap: Spacing.three },
+  sectionWrapper: { flex: 1, alignSelf: 'stretch' },
   heroSection: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -77,21 +106,5 @@ const styles = StyleSheet.create({
   title: {
     textAlign: 'center',
   },
-  stepContainer: {
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.four,
-  },
-  row: {
-    gap: Spacing.half,
-    paddingVertical: Spacing.three,
-  },
-  rowDivider: {
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(128,128,128,0.15)',
-  },
-  centerText: {
-    textAlign: 'center',
-  },
+  cardList: { alignSelf: 'stretch', gap: Spacing.two },
 });

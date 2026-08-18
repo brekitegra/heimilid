@@ -7,20 +7,25 @@ import '@/global.css';
 
 import { Platform } from 'react-native';
 
+// A warm, "homey" palette — linen/clay/espresso rather than stark
+// black-and-white — with one accent color (a terracotta clay) used
+// sparingly for primary actions and links.
 export const Colors = {
   light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
+    text: '#2B2118',
+    background: '#FBF7F0',
+    backgroundElement: '#F1E7D8',
+    backgroundSelected: '#E7D8C0',
+    textSecondary: '#7C6F5E',
+    accent: '#C1633D',
   },
   dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
+    text: '#F5EAD9',
+    background: '#1C1712',
+    backgroundElement: '#2A2119',
+    backgroundSelected: '#3B2E22',
+    textSecondary: '#B3A28C',
+    accent: '#E0824B',
   },
 } as const;
 

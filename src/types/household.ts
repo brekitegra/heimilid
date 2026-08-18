@@ -4,6 +4,9 @@ export interface Profile {
   id: string;
   full_name: string | null;
   avatar_url: string | null;
+  phone: string | null;
+  kennitala: string | null;
+  xp: number;
 }
 
 export interface Household {

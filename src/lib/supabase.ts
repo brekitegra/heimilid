@@ -1,10 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
+import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 import 'react-native-url-polyfill/auto';
 
 const supabaseUrl = 'https://odwnrzasatbvwjxdbuqr.supabase.co';
 const supabaseAnonKey = 'sb_publishable_jxwNEgBXtzUoJLuw1O-T6A_ckTKk-Uo';
+
+// Named explicitly (rather than relying on supabase-js's auto-derived
+// default) so other code — the "Remember me" opt-out below — can reliably
+// remove exactly this key from storage.
+export const SUPABASE_AUTH_STORAGE_KEY = 'heimilid-auth';
 
 // On web, Expo Router's `web.output: "static"` server-renders each route in
 // Node before it ever reaches a browser. AsyncStorage's web implementation
@@ -44,9 +50,20 @@ class NoopWebSocket {
   removeEventListener() {}
 }
 
+// Where Supabase should send people back to after an email confirmation or
+// password-reset link — our own /auth-callback route, which parses the
+// tokens in the URL and either signs them in or lets them set a new
+// password. Must be added to this project's Auth > URL Configuration >
+// Redirect URLs allow-list in the Supabase dashboard, or Supabase will
+// silently ignore it and fall back to the project's default Site URL.
+export function getAuthCallbackUrl() {
+  return Platform.OS === 'web' ? `${window.location.origin}/auth-callback` : Linking.createURL('/auth-callback');
+}
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: isBrowser ? AsyncStorage : undefined,
+    storageKey: SUPABASE_AUTH_STORAGE_KEY,
     autoRefreshToken: isBrowser,
     persistSession: isBrowser,
     detectSessionInUrl: false,

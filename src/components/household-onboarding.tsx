@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, TextInput } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -7,6 +7,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useHousehold } from '@/hooks/use-household';
 import { useTheme } from '@/hooks/use-theme';
+import { showAlert } from '@/lib/alert';
 
 type Mode = 'create' | 'join';
 
@@ -20,11 +21,11 @@ export function HouseholdOnboarding() {
 
   async function handleSubmit() {
     if (mode === 'create' && !name.trim()) {
-      Alert.alert('Give your household a name');
+      showAlert('Give your household a name');
       return;
     }
     if (mode === 'join' && !code.trim()) {
-      Alert.alert('Enter an invite code');
+      showAlert('Enter an invite code');
       return;
     }
 
@@ -36,7 +37,7 @@ export function HouseholdOnboarding() {
         await joinHousehold(code.trim());
       }
     } catch (err) {
-      Alert.alert(
+      showAlert(
         mode === 'create' ? "Couldn't create household" : "Couldn't join household",
         err instanceof Error ? err.message : 'Something went wrong'
       );
@@ -48,57 +49,62 @@ export function HouseholdOnboarding() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ThemedText type="title" style={styles.title}>
-          Heimilið
-        </ThemedText>
-        <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-          Create a household to get started, or join one with an invite code.
-        </ThemedText>
+        <KeyboardAvoidingView
+          style={styles.form}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}>
+          <ThemedText type="title" style={styles.title}>
+            Heimilið
+          </ThemedText>
+          <ThemedText themeColor="textSecondary" style={styles.subtitle}>
+            Create a household to get started, or join one with an invite code.
+          </ThemedText>
 
-        <ThemedView type="backgroundElement" style={styles.tabs}>
-          <Pressable
-            style={[styles.tab, mode === 'create' && { backgroundColor: theme.backgroundSelected }]}
-            onPress={() => setMode('create')}>
-            <ThemedText type="smallBold">Create</ThemedText>
-          </Pressable>
-          <Pressable
-            style={[styles.tab, mode === 'join' && { backgroundColor: theme.backgroundSelected }]}
-            onPress={() => setMode('join')}>
-            <ThemedText type="smallBold">Join</ThemedText>
-          </Pressable>
-        </ThemedView>
+          <ThemedView type="backgroundElement" style={styles.tabs}>
+            <Pressable
+              style={[styles.tab, mode === 'create' && { backgroundColor: theme.backgroundSelected }]}
+              onPress={() => setMode('create')}>
+              <ThemedText type="smallBold">Create</ThemedText>
+            </Pressable>
+            <Pressable
+              style={[styles.tab, mode === 'join' && { backgroundColor: theme.backgroundSelected }]}
+              onPress={() => setMode('join')}>
+              <ThemedText type="smallBold">Join</ThemedText>
+            </Pressable>
+          </ThemedView>
 
-        {mode === 'create' ? (
-          <TextInput
-            style={[styles.input, { borderColor: theme.backgroundSelected, color: theme.text }]}
-            placeholder="e.g. Gylfason family"
-            placeholderTextColor={theme.textSecondary}
-            value={name}
-            onChangeText={setName}
-          />
-        ) : (
-          <TextInput
-            style={[styles.input, { borderColor: theme.backgroundSelected, color: theme.text }]}
-            placeholder="Invite code"
-            placeholderTextColor={theme.textSecondary}
-            autoCapitalize="characters"
-            value={code}
-            onChangeText={setCode}
-          />
-        )}
-
-        <Pressable
-          style={[styles.submit, { backgroundColor: theme.text, opacity: submitting ? 0.6 : 1 }]}
-          disabled={submitting}
-          onPress={handleSubmit}>
-          {submitting ? (
-            <ActivityIndicator color={theme.background} />
+          {mode === 'create' ? (
+            <TextInput
+              style={[styles.input, { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text }]}
+              placeholder="e.g. Gylfason family"
+              placeholderTextColor={theme.textSecondary}
+              value={name}
+              onChangeText={setName}
+            />
           ) : (
-            <ThemedText type="smallBold" themeColor="background">
-              {mode === 'create' ? 'Create household' : 'Join household'}
-            </ThemedText>
+            <TextInput
+              style={[styles.input, { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text }]}
+              placeholder="Invite code"
+              placeholderTextColor={theme.textSecondary}
+              autoCapitalize="characters"
+              value={code}
+              onChangeText={setCode}
+            />
           )}
-        </Pressable>
+
+          <Pressable
+            style={[styles.submit, { backgroundColor: theme.accent, opacity: submitting ? 0.6 : 1 }]}
+            disabled={submitting}
+            onPress={handleSubmit}>
+            {submitting ? (
+              <ActivityIndicator color={theme.background} />
+            ) : (
+              <ThemedText type="smallBold" themeColor="background">
+                {mode === 'create' ? 'Create household' : 'Join household'}
+              </ThemedText>
+            )}
+          </Pressable>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </ThemedView>
   );
@@ -106,7 +112,8 @@ export function HouseholdOnboarding() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  safeArea: { flex: 1, justifyContent: 'center', paddingHorizontal: Spacing.four, gap: Spacing.three },
+  safeArea: { flex: 1, justifyContent: 'center', paddingHorizontal: Spacing.four },
+  form: { gap: Spacing.three },
   title: { textAlign: 'center' },
   subtitle: { textAlign: 'center', marginBottom: Spacing.two },
   tabs: { flexDirection: 'row', borderRadius: Spacing.three, padding: Spacing.half },

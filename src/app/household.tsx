@@ -1,13 +1,17 @@
 import { useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, Share, StyleSheet } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Avatar } from '@/components/avatar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { WebBadge } from '@/components/web-badge';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useHousehold } from '@/hooks/use-household';
 import { useTheme } from '@/hooks/use-theme';
+import { showAlert } from '@/lib/alert';
+import { shareHouseholdInvite } from '@/lib/share-invite';
+import { levelForXp, rankBadge, sortMembersByXp } from '@/lib/xp';
 
 export default function HouseholdScreen() {
   const safeAreaInsets = useSafeAreaInsets();
@@ -31,13 +35,11 @@ export default function HouseholdScreen() {
 
   async function shareInvite() {
     if (!household) return;
-    await Share.share({
-      message: `Join our household "${household.name}" on Heimilið! Use invite code: ${household.invite_code}`,
-    });
+    await shareHouseholdInvite(household);
   }
 
   function confirmLeave() {
-    Alert.alert('Leave household', `Leave "${household?.name}"? You'll need the invite code to rejoin.`, [
+    showAlert('Leave household', `Leave "${household?.name}"? You'll need the invite code to rejoin.`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Leave',
@@ -47,7 +49,7 @@ export default function HouseholdScreen() {
           try {
             await leaveHousehold();
           } catch (err) {
-            Alert.alert("Couldn't leave household", err instanceof Error ? err.message : 'Something went wrong');
+            showAlert("Couldn't leave household", err instanceof Error ? err.message : 'Something went wrong');
           } finally {
             setLeaving(false);
           }
@@ -85,16 +87,30 @@ export default function HouseholdScreen() {
 
         <ThemedView style={styles.membersSection}>
           <ThemedText type="smallBold" themeColor="textSecondary">
-            MEMBERS
+            LEADERBOARD
           </ThemedText>
-          {members.map((member) => (
-            <ThemedView key={member.user_id} type="backgroundElement" style={styles.memberRow}>
-              <ThemedText type="default">{member.profile?.full_name?.trim() || 'Unnamed'}</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                {member.role}
-              </ThemedText>
-            </ThemedView>
-          ))}
+          {sortMembersByXp(members).map((member, index) => {
+            const xp = member.profile?.xp ?? 0;
+            return (
+              <ThemedView key={member.user_id} type="backgroundElement" style={styles.memberRow}>
+                <View style={styles.memberIdentity}>
+                  <ThemedText type="smallBold" style={styles.rankBadge}>
+                    {rankBadge(index)}
+                  </ThemedText>
+                  <Avatar url={member.profile?.avatar_url} name={member.profile?.full_name} size={36} />
+                  <View style={styles.memberNameColumn}>
+                    <ThemedText type="default">{member.profile?.full_name?.trim() || 'Unnamed'}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      Level {levelForXp(xp)} · {xp} XP
+                    </ThemedText>
+                  </View>
+                </View>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {member.role}
+                </ThemedText>
+              </ThemedView>
+            );
+          })}
         </ThemedView>
 
         <Pressable disabled={leaving} onPress={confirmLeave} style={({ pressed }) => pressed && styles.pressed}>
@@ -163,6 +179,9 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
     borderRadius: Spacing.three,
   },
+  memberIdentity: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  rankBadge: { minWidth: 28 },
+  memberNameColumn: { gap: Spacing.half },
   leaveText: {
     textAlign: 'center',
     color: '#e5484d',

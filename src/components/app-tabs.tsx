@@ -20,11 +20,11 @@ export default function AppTabs() {
         />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="explore">
-        <NativeTabs.Trigger.Label>Explore</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="household">
+        <NativeTabs.Trigger.Label>Household</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
+          sf={{ default: 'person.2', selected: 'person.2.fill' }}
+          md="people"
         />
       </NativeTabs.Trigger>
     </NativeTabs>

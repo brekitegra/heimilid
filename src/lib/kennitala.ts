@@ -1,6 +1,11 @@
 // Weights for the standard Icelandic kennitala (national ID) checksum —
-// applies to both individuals (DDMMYY-XXXX) and companies alike.
-const CHECK_WEIGHTS = [3, 2, 7, 6, 5, 4, 3, 2, 1];
+// applies over the first 8 digits only (DDMMYY + 2-digit serial number).
+// The 9th digit is the resulting check digit; the 10th is a separate
+// century marker (roughly: 9 for 1900s-born, 0 for 2000s-born) that isn't
+// part of the checksum at all — a mistake in an earlier version of this
+// file included it as a 9th weight and validated against the 10th digit
+// instead of the 9th, rejecting every real kennitala.
+const CHECK_WEIGHTS = [3, 2, 7, 6, 5, 4, 3, 2];
 
 /** Reformats free-typed digits into "DDMMYY-XXXX" as the user types, so the
  * hyphen appears on its own without them having to type it. */
@@ -23,5 +28,5 @@ export function isValidKennitala(value: string): boolean {
   const checkDigit = remainder === 0 ? 0 : 11 - remainder;
   if (checkDigit === 10) return false; // no valid kennitala ever produces this
 
-  return checkDigit === nums[9];
+  return checkDigit === nums[8];
 }

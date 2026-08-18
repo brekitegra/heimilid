@@ -50,7 +50,7 @@ export function HouseholdOnboarding() {
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
-          style={styles.form}
+          style={[styles.form, { borderColor: theme.backgroundSelected }]}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}>
           <ThemedText type="title" style={styles.title}>
@@ -113,11 +113,21 @@ export function HouseholdOnboarding() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1, justifyContent: 'center', paddingHorizontal: Spacing.four },
-  form: { gap: Spacing.three },
+  // Same fix as auth-screen.tsx — capped and centered instead of
+  // stretching edge-to-edge on a wide (web) viewport.
+  form: {
+    gap: Spacing.four,
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 460,
+    borderWidth: 1,
+    borderRadius: Spacing.four,
+    padding: Spacing.five,
+  },
   title: { textAlign: 'center' },
   subtitle: { textAlign: 'center', marginBottom: Spacing.two },
   tabs: { flexDirection: 'row', borderRadius: Spacing.three, padding: Spacing.half },
   tab: { flex: 1, alignItems: 'center', paddingVertical: Spacing.two, borderRadius: Spacing.two },
-  input: { borderWidth: 1, borderRadius: Spacing.two, padding: Spacing.three },
+  input: { borderWidth: 1, borderRadius: Spacing.two, paddingVertical: Spacing.three + Spacing.half, paddingHorizontal: Spacing.four },
   submit: { alignItems: 'center', paddingVertical: Spacing.three, borderRadius: Spacing.two, marginTop: Spacing.two },
 });

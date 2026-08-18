@@ -106,7 +106,7 @@ export default function HouseholdScreen() {
                   </View>
                 </View>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {member.role}
+                  {member.role === 'owner' ? 'Owner' : 'Member'}
                 </ThemedText>
               </ThemedView>
             );

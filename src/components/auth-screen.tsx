@@ -88,7 +88,7 @@ export function AuthScreen() {
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
-          style={styles.form}
+          style={[styles.form, { borderColor: theme.backgroundSelected }]}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}>
           <ThemedView type="backgroundElement" style={styles.badge}>
@@ -211,13 +211,26 @@ export function AuthScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1, justifyContent: 'center', paddingHorizontal: Spacing.four },
-  form: { alignItems: 'center', gap: Spacing.three },
-  badge: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
-  badgeIcon: { width: 32, height: 32 },
+  // No max width meant this stretched edge-to-edge on a wide (web) viewport
+  // — a plain phone-width card, capped and centered, regardless of screen
+  // size, is far more compact and reads as a proper form rather than a
+  // full-bleed page.
+  form: {
+    alignItems: 'center',
+    gap: Spacing.four,
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 460,
+    borderWidth: 1,
+    borderRadius: Spacing.four,
+    padding: Spacing.five,
+  },
+  badge: { width: 76, height: 76, borderRadius: 38, alignItems: 'center', justifyContent: 'center' },
+  badgeIcon: { width: 38, height: 38 },
   title: { textAlign: 'center' },
   subtitle: { textAlign: 'center', marginBottom: Spacing.two, alignSelf: 'stretch' },
   subtitleLink: { fontSize: 14, lineHeight: 20 },
-  input: { alignSelf: 'stretch', borderWidth: 1, borderRadius: 28, padding: Spacing.three },
+  input: { alignSelf: 'stretch', borderWidth: 1, borderRadius: 28, paddingVertical: Spacing.three + Spacing.half, paddingHorizontal: Spacing.four },
   passwordWrapper: { alignSelf: 'stretch', justifyContent: 'center' },
   passwordInput: { paddingRight: Spacing.four + Spacing.three },
   passwordToggle: { position: 'absolute', right: Spacing.three, paddingVertical: Spacing.two, paddingHorizontal: Spacing.one },

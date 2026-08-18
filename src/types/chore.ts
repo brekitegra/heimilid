@@ -11,6 +11,7 @@ export interface Chore {
   is_done: boolean;
   last_completed_at: string | null;
   streak_count: number;
+  completed_by: string | null;
   created_by: string;
   created_at: string;
 }

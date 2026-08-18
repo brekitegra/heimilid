@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeOut, LinearTransition } from 'react-native-reanimated';
 
 import { Checkbox } from '@/components/checkbox';
@@ -32,6 +32,9 @@ const DUE_DATE_OPTIONS: { label: string; value: string | null }[] = [
 ];
 
 const OVERDUE_COLOR = '#e5484d';
+// Below this, two side-by-side boxes would be too cramped to be worth it —
+// stack them instead.
+const SIDE_BY_SIDE_BREAKPOINT = 700;
 // How long a just-finished one-off chore lingers (flashing, sparkling)
 // before it actually leaves the list.
 const DAZZLE_MS = 800;
@@ -46,9 +49,11 @@ function initials(name: string | null | undefined) {
  * overdue color instead of the usual muted secondary tone. */
 type MetaPart = { text: string; warn?: boolean };
 
-function buildMeta(chore: Chore, assigneeName: string | null | undefined): MetaPart[] {
+function buildMeta(chore: Chore, assigneeName: string | null | undefined, completerName: string | null | undefined): MetaPart[] {
   const parts: MetaPart[] = [{ text: FREQUENCIES.find((f) => f.value === chore.frequency)?.label ?? '' }];
   if (assigneeName) parts.push({ text: assigneeName });
+
+  const done = isChoreDoneNow(chore);
 
   if (chore.frequency === 'once') {
     if (!chore.is_done) {
@@ -58,16 +63,23 @@ function buildMeta(chore: Chore, assigneeName: string | null | undefined): MetaP
   } else {
     const streak = formatStreak(chore);
     if (streak) parts.push({ text: streak });
-    if (!isChoreDoneNow(chore)) {
+    if (!done) {
       const lastDone = formatLastDone(chore);
       if (lastDone) parts.push({ text: lastDone });
     }
   }
+
+  // Who actually checked the box — not the assignee, since anyone can pitch
+  // in and complete something assigned to someone else.
+  if (done && completerName) parts.push({ text: `Completed by ${completerName}` });
+
   return parts;
 }
 
 export function ChoresSection({ onBack }: { onBack: () => void }) {
   const theme = useTheme();
+  const { width } = useWindowDimensions();
+  const isWideLayout = width >= SIDE_BY_SIDE_BREAKPOINT;
   const { members } = useHousehold();
   const { chores, loading, currentUserId, addChore, updateChore, toggleChore, deleteChore } = useChores();
   const scrollRef = useRef<ScrollView>(null);
@@ -216,16 +228,22 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
 
   const visibleDoneCount = useMemo(() => visibleChores.filter((c) => isChoreDoneNow(c)).length, [visibleChores]);
 
-  // Light-touch grouping: routines (recurring) vs one-time errands. Only
-  // worth separating when both kinds are actually present.
+  // Light-touch grouping: routines (recurring) vs one-time errands. Once
+  // there's ever been a chore, both boxes are a permanent fixture — each
+  // shows its own "nothing here" placeholder rather than disappearing, so
+  // the layout doesn't shift around based on what's currently in it.
   const routineChores = visibleChores.filter((c) => c.frequency !== 'once');
   const oneTimeChores = visibleChores.filter((c) => c.frequency === 'once');
-  const showGroupHeaders = routineChores.length > 0 && oneTimeChores.length > 0;
+  const showGroupBoxes = chores.length > 0;
 
   function renderChoreRow(chore: Chore) {
     const done = isChoreDoneNow(chore);
     const assignee = members.find((m) => m.user_id === chore.assigned_to)?.profile?.full_name;
-    const meta = buildMeta(chore, assignee);
+    const completerName =
+      chore.completed_by === currentUserId
+        ? 'you'
+        : members.find((m) => m.user_id === chore.completed_by)?.profile?.full_name;
+    const meta = buildMeta(chore, assignee, completerName);
     const isDazzling = dazzlingIds.has(chore.id);
     const popupsForRow = xpPopups.filter((p) => p.choreId === chore.id);
 
@@ -405,28 +423,43 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
           <ActivityIndicator color={theme.accent} style={styles.loadingSpinner} />
         )}
 
-        {!loading && visibleChores.length === 0 && (
+        {!loading && chores.length === 0 && (
           <View style={styles.emptyState}>
             <ChoresIcon color={theme.backgroundSelected} size={40} />
             <ThemedText themeColor="textSecondary" style={styles.emptyText}>
-              {chores.length === 0 ? 'No chores yet — add your first one above.' : "No chores assigned to you — nice."}
+              No chores yet — add your first one above.
             </ThemedText>
           </View>
         )}
 
-        {showGroupHeaders && routineChores.length > 0 && (
-          <ThemedText type="small" themeColor="textSecondary" style={styles.groupHeader}>
-            ROUTINES
-          </ThemedText>
+        {showGroupBoxes && (
+          <View style={isWideLayout ? styles.groupsRow : styles.groupsColumn}>
+            <View style={[styles.groupCard, isWideLayout && styles.groupCardFlex, { borderColor: theme.backgroundSelected }]}>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.groupCardHeader}>
+                RECURRING
+              </ThemedText>
+              {routineChores.length > 0 ? (
+                routineChores.map(renderChoreRow)
+              ) : (
+                <ThemedText type="small" themeColor="textSecondary" style={styles.groupEmptyText}>
+                  {showMineOnly ? 'No recurring chores assigned to you' : 'No recurring chores yet'}
+                </ThemedText>
+              )}
+            </View>
+            <View style={[styles.groupCard, isWideLayout && styles.groupCardFlex, { borderColor: theme.backgroundSelected }]}>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.groupCardHeader}>
+                ONE-TIME
+              </ThemedText>
+              {oneTimeChores.length > 0 ? (
+                oneTimeChores.map(renderChoreRow)
+              ) : (
+                <ThemedText type="small" themeColor="textSecondary" style={styles.groupEmptyText}>
+                  {showMineOnly ? 'No one-time chores assigned to you' : 'No one-time chores yet'}
+                </ThemedText>
+              )}
+            </View>
+          </View>
         )}
-        {routineChores.map(renderChoreRow)}
-
-        {showGroupHeaders && oneTimeChores.length > 0 && (
-          <ThemedText type="small" themeColor="textSecondary" style={styles.groupHeader}>
-            ONE-TIME
-          </ThemedText>
-        )}
-        {oneTimeChores.map(renderChoreRow)}
       </ScrollView>
     </View>
   );
@@ -455,7 +488,12 @@ const styles = StyleSheet.create({
   loadingSpinner: { marginTop: Spacing.six },
   emptyState: { alignItems: 'center', gap: Spacing.two, marginTop: Spacing.six },
   emptyText: { textAlign: 'center' },
-  groupHeader: { paddingHorizontal: Spacing.one, paddingTop: Spacing.two },
+  groupsRow: { flexDirection: 'row', gap: Spacing.three, alignItems: 'flex-start' },
+  groupsColumn: { gap: Spacing.three },
+  groupCard: { borderWidth: 1, borderRadius: Spacing.four, padding: Spacing.three, gap: Spacing.two },
+  groupCardFlex: { flex: 1 },
+  groupCardHeader: { paddingHorizontal: Spacing.one },
+  groupEmptyText: { paddingHorizontal: Spacing.one, paddingVertical: Spacing.two },
   choreRow: {
     flexDirection: 'row',
     alignItems: 'center',

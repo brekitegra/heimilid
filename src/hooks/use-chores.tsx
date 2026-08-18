@@ -137,7 +137,7 @@ export function useChores() {
       frequency: input.frequency,
       assigned_to: input.assignedTo,
       due_date: input.dueDate,
-      ...(frequencyChanged ? { last_completed_at: null, streak_count: 0, is_done: false } : {}),
+      ...(frequencyChanged ? { last_completed_at: null, streak_count: 0, is_done: false, completed_by: null } : {}),
     };
 
     setChores((prev) => prev.map((c) => (c.id === chore.id ? { ...c, ...patch } : c)));
@@ -157,20 +157,21 @@ export function useChores() {
       let xpDelta = 0;
 
       if (chore.frequency === 'once') {
-        patch = { is_done: nowDone };
+        patch = { is_done: nowDone, completed_by: nowDone ? currentUserId : null };
         xpDelta = nowDone ? XP_BASE : -XP_BASE;
       } else if (nowDone) {
         const continuesStreak = wasCompletedInPreviousPeriod(chore);
         patch = {
           last_completed_at: new Date().toISOString(),
           streak_count: continuesStreak ? chore.streak_count + 1 : 1,
+          completed_by: currentUserId,
         };
         xpDelta = XP_BASE + (continuesStreak ? XP_STREAK_BONUS : 0);
       } else {
         // Undo: approximate rather than perfectly reconstruct history —
         // the streak bonus reverses if it looks like this completion had
         // one (streak was already 2+ before this undo).
-        patch = { last_completed_at: null, streak_count: Math.max(0, chore.streak_count - 1) };
+        patch = { last_completed_at: null, streak_count: Math.max(0, chore.streak_count - 1), completed_by: null };
         xpDelta = -(XP_BASE + (chore.streak_count >= 2 ? XP_STREAK_BONUS : 0));
       }
 
@@ -192,7 +193,7 @@ export function useChores() {
 
       return xpDelta;
     },
-    [refreshHousehold]
+    [refreshHousehold, currentUserId]
   );
 
   const deleteChore = useCallback(async (chore: Chore) => {

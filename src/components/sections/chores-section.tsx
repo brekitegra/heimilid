@@ -9,6 +9,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { isChoreDoneNow, useChores } from '@/hooks/use-chores';
+import { useDelayedBlur } from '@/hooks/use-delayed-blur';
 import { useHousehold } from '@/hooks/use-household';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
@@ -92,6 +93,7 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [showMineOnly, setShowMineOnly] = useState(false);
   const [composerFocused, setComposerFocused] = useState(false);
+  const composerBlur = useDelayedBlur(setComposerFocused);
 
   // Ids of one-off chores mid-"dazzle" — kept visible (and excluded from
   // the normal done-chores-vanish rule) for a beat after completion so the
@@ -316,8 +318,8 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
             value={title}
             onChangeText={setTitle}
             onSubmitEditing={handleSubmit}
-            onFocus={() => setComposerFocused(true)}
-            onBlur={() => setComposerFocused(false)}
+            onFocus={composerBlur.onFocus}
+            onBlur={composerBlur.onBlur}
             returnKeyType="done"
           />
 

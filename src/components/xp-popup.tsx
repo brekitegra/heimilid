@@ -8,10 +8,11 @@ import { useTheme } from '@/hooks/use-theme';
 const RISE_DISTANCE = 28;
 const DURATION = 900;
 
-/** A "+10 XP" that floats up and fades out over the checkbox that earned
- * it, then calls `onDone` so the caller can drop it from whatever list is
+/** A "+10 XP" (or "+2 ⭐" with a custom `suffix`, e.g. for kids' star
+ * rewards) that floats up and fades out over the checkbox that earned it,
+ * then calls `onDone` so the caller can drop it from whatever list is
  * tracking active popups. Purely decorative — doesn't affect layout. */
-export function XpPopup({ amount, onDone }: { amount: number; onDone: () => void }) {
+export function XpPopup({ amount, suffix = 'XP', onDone }: { amount: number; suffix?: string; onDone: () => void }) {
   const theme = useTheme();
   const progress = useSharedValue(0);
 
@@ -32,7 +33,7 @@ export function XpPopup({ amount, onDone }: { amount: number; onDone: () => void
   return (
     <Animated.View pointerEvents="none" style={[styles.container, animatedStyle]}>
       <ThemedText type="smallBold" style={{ color: theme.accent }}>
-        +{amount} XP
+        +{amount} {suffix}
       </ThemedText>
     </Animated.View>
   );

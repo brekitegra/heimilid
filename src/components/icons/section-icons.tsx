@@ -43,3 +43,15 @@ export function KidsIcon({ color, size = 24 }: SectionIconProps) {
     </Svg>
   );
 }
+
+/** A shopping bag — groceries. */
+export function GroceriesIcon({ color, size = 24 }: SectionIconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        d="M18 6h-2c0-2.21-1.79-4-4-4S8 3.79 8 6H6c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zM12 4c1.1 0 2 .9 2 2h-4c0-1.1.9-2 2-2zM12 15c-2.21 0-4-1.79-4-4h1.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5H16c0 2.21-1.79 4-4 4z"
+        fill={color}
+      />
+    </Svg>
+  );
+}

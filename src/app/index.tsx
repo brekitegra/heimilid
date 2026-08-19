@@ -3,10 +3,11 @@ import { Platform, StyleSheet } from 'react-native';
 import Animated, { FadeIn, FadeOut, SlideInRight, SlideOutRight } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ChoresIcon, FinancesIcon, KidsIcon, PetsIcon } from '@/components/icons/section-icons';
+import { ChoresIcon, FinancesIcon, GroceriesIcon, KidsIcon, PetsIcon } from '@/components/icons/section-icons';
 import { HubCard } from '@/components/hub-card';
 import { ChoresSection } from '@/components/sections/chores-section';
 import { FinancesSection } from '@/components/sections/finances-section';
+import { GroceriesSection } from '@/components/sections/groceries-section';
 import { KidsSection } from '@/components/sections/kids-section';
 import { PetsSection } from '@/components/sections/pets-section';
 import { ThemedText } from '@/components/themed-text';
@@ -15,17 +16,19 @@ import { WebBadge } from '@/components/web-badge';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useHousehold } from '@/hooks/use-household';
 
-type Section = 'chores' | 'pets' | 'finances' | 'kids';
+type Section = 'chores' | 'groceries' | 'pets' | 'finances' | 'kids';
 
 const SECTIONS: { key: Section; title: string; hint: string; Icon: typeof ChoresIcon }[] = [
   { key: 'chores', title: 'Chores', hint: 'Assign and track household chores', Icon: ChoresIcon },
+  { key: 'groceries', title: 'Groceries', hint: 'Shopping lists and recipes', Icon: GroceriesIcon },
   { key: 'pets', title: 'Pets', hint: 'Feeding, vet visits, and care', Icon: PetsIcon },
   { key: 'finances', title: 'Finances', hint: 'Accounts and recurring bills', Icon: FinancesIcon },
-  { key: 'kids', title: 'Kids', hint: 'Practices and activity schedules', Icon: KidsIcon },
+  { key: 'kids', title: 'Kids', hint: 'School, practices, and star rewards', Icon: KidsIcon },
 ];
 
 const SECTION_COMPONENTS: Record<Section, (props: { onBack: () => void }) => React.JSX.Element> = {
   chores: ChoresSection,
+  groceries: GroceriesSection,
   pets: PetsSection,
   finances: FinancesSection,
   kids: KidsSection,

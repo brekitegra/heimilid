@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeOut, LinearTransition } from 'react-native-reanimated';
 
+import { BackButton } from '@/components/back-button';
 import { Checkbox } from '@/components/checkbox';
 import { ChoresIcon } from '@/components/icons/section-icons';
 import { SparkleBurst } from '@/components/sparkle-burst';
@@ -288,9 +289,7 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={onBack} hitSlop={8}>
-          <ThemedText type="linkPrimary">‹ Home</ThemedText>
-        </Pressable>
+        <BackButton label="Home" onPress={onBack} />
         {visibleChores.length > 0 && (
           <ThemedText type="small" themeColor="textSecondary">
             {visibleDoneCount} of {visibleChores.length} done
@@ -470,7 +469,7 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
 const styles = StyleSheet.create({
   container: { flex: 1, alignSelf: 'stretch', gap: Spacing.three },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  addCard: { borderRadius: Spacing.four, padding: Spacing.three, gap: Spacing.two },
+  addCard: { borderRadius: Spacing.four, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, gap: Spacing.two },
   editingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   input: { fontSize: 16, paddingVertical: Spacing.one },
   pillRow: { flexGrow: 0 },
@@ -508,5 +507,5 @@ const styles = StyleSheet.create({
   checkboxSlot: { position: 'relative' },
   choreTextWrapper: { flex: 1, gap: Spacing.half },
   doneText: { textDecorationLine: 'line-through' },
-  deleteIcon: { fontSize: 20, lineHeight: 20, paddingHorizontal: Spacing.one },
+  deleteIcon: { fontSize: 24, lineHeight: 24, paddingHorizontal: Spacing.one },
 });

@@ -1,0 +1,13 @@
+-- Real bug found via testing: meal_plans_has_description (added in
+-- 0023) actively blocked deleting a recipe that any meal plan referenced
+-- at all. Postgres re-validates CHECK constraints on the row being
+-- updated by an ON DELETE SET NULL action — so nulling out recipe_id
+-- while title was already null (the normal shape for a recipe-linked
+-- plan) violated the constraint, and the *entire recipe delete* was
+-- rolled back with a hard error. That directly contradicts this app's
+-- established convention (migration 0011 and every table since): deleting
+-- something never gets blocked by a reference elsewhere, it just loses
+-- that reference. The UI already falls back to "Recipe removed" for a
+-- plan with neither recipe_id nor title, so the DB no longer needs to
+-- (and must not) forbid that state.
+alter table public.meal_plans drop constraint meal_plans_has_description;

@@ -16,7 +16,11 @@ export const Colors = {
     background: '#FBF7F0',
     backgroundElement: '#F1E7D8',
     backgroundSelected: '#E7D8C0',
-    textSecondary: '#7C6F5E',
+    // Darkened from #7C6F5E — that shade only passed WCAG AA (4.5:1)
+    // against the plain page background; against backgroundElement (where
+    // most meta captions actually sit, inside filled card rows) it was
+    // 4.0:1, failing AA. This passes comfortably against both.
+    textSecondary: '#6B5D4C',
     accent: '#C1633D',
   },
   dark: {

@@ -55,3 +55,15 @@ export function GroceriesIcon({ color, size = 24 }: SectionIconProps) {
     </Svg>
   );
 }
+
+/** A solid heart — health & fitness. */
+export function HealthIcon({ color, size = 24 }: SectionIconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        d="M12 21s-7.5-4.6-10-9.3C.5 8.4 2 4.8 5.6 4.1c2-.4 4 .5 5 2.2 1-1.7 3-2.6 5-2.2C19.2 4.8 20.7 8.4 19.2 11.7 16.7 16.4 12 21 12 21z"
+        fill={color}
+      />
+    </Svg>
+  );
+}

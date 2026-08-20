@@ -1,5 +1,6 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
+import { BackButton } from '@/components/back-button';
 import type { SectionIconProps } from '@/components/icons/section-icons';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
@@ -21,9 +22,7 @@ export function ComingSoonSection({ title, description, Icon, onBack }: ComingSo
 
   return (
     <View style={styles.container}>
-      <Pressable onPress={onBack} hitSlop={8} style={styles.backRow}>
-        <ThemedText type="linkPrimary">‹ Home</ThemedText>
-      </Pressable>
+      <BackButton label="Home" onPress={onBack} />
 
       <View style={styles.body}>
         <View style={[styles.iconBadge, { backgroundColor: theme.backgroundElement }]}>
@@ -45,7 +44,6 @@ export function ComingSoonSection({ title, description, Icon, onBack }: ComingSo
 
 const styles = StyleSheet.create({
   container: { alignSelf: 'stretch', flex: 1 },
-  backRow: { alignSelf: 'flex-start' },
   body: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.two, paddingBottom: Spacing.six },
   iconBadge: {
     width: 72,

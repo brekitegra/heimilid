@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View }
 import Animated, { FadeOut, LinearTransition } from 'react-native-reanimated';
 
 import { Avatar } from '@/components/avatar';
+import { BackButton } from '@/components/back-button';
 import { CalendarMonthView, type CalendarMarker } from '@/components/calendar-month-view';
 import { Checkbox } from '@/components/checkbox';
 import { KidsIcon } from '@/components/icons/section-icons';
@@ -1389,9 +1390,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
     <View style={styles.container}>
       <KidsStarBackground />
       <View style={styles.header}>
-        <Pressable onPress={onBack} hitSlop={8}>
-          <ThemedText type="linkPrimary">‹ Home</ThemedText>
-        </Pressable>
+        <BackButton label="Home" onPress={onBack} />
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
@@ -1591,7 +1590,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
 const styles = StyleSheet.create({
   container: { flex: 1, alignSelf: 'stretch', gap: Spacing.three },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  addCard: { borderRadius: Spacing.four, padding: Spacing.three, gap: Spacing.two },
+  addCard: { borderRadius: Spacing.four, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, gap: Spacing.two },
   editingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   input: { fontSize: 16, paddingVertical: Spacing.one },
   pillRow: { flexGrow: 0 },
@@ -1643,9 +1642,9 @@ const styles = StyleSheet.create({
   checkboxSlot: { position: 'relative' },
   itemTextWrapper: { flex: 1, gap: Spacing.half },
   doneText: { textDecorationLine: 'line-through' },
-  deleteIcon: { fontSize: 20, lineHeight: 20, paddingHorizontal: Spacing.one },
+  deleteIcon: { fontSize: 24, lineHeight: 24, paddingHorizontal: Spacing.one },
   timeRow: { flexDirection: 'row', gap: Spacing.two },
-  timeInput: { flex: 1, borderRadius: Spacing.two, paddingHorizontal: Spacing.two },
+  timeInput: { flex: 1, minWidth: 0, borderRadius: Spacing.two, paddingHorizontal: Spacing.two },
   calendarWrapper: { gap: Spacing.three },
   calendarCard: { borderRadius: Spacing.four, padding: Spacing.three, gap: Spacing.two },
   legendRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.three, justifyContent: 'center', paddingTop: Spacing.one },

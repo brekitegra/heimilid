@@ -2,29 +2,36 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import Animated, { FadeOut, LinearTransition } from 'react-native-reanimated';
 
+import { BackButton } from '@/components/back-button';
 import { Checkbox } from '@/components/checkbox';
 import { CollapsibleCard } from '@/components/collapsible-card';
 import { GroceriesIcon } from '@/components/icons/section-icons';
+import { NavArrowButton } from '@/components/nav-arrow-button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
+import { startOfWeek, toLocalISODate } from '@/lib/date-format';
 import { useDelayedBlur } from '@/hooks/use-delayed-blur';
 import { useGrocery } from '@/hooks/use-grocery';
 import { useHousehold } from '@/hooks/use-household';
+import { useMealPlans } from '@/hooks/use-meal-plans';
 import { useRecipes } from '@/hooks/use-recipes';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
 import { categoryEmoji, categoryLabel, GROCERY_CATEGORIES, groupByCategory } from '@/lib/grocery-format';
 import { RECIPE_CATEGORIES, recipeCategoryLabel } from '@/lib/recipe-format';
 import type { GroceryCategory, GroceryItem, GroceryList } from '@/types/grocery';
+import type { MealPlan } from '@/types/meal-plan';
 import type { Recipe, RecipeCategory } from '@/types/recipe';
 
-type Mode = 'list' | 'recipes';
+type Mode = 'list' | 'recipes' | 'plan';
 type TemplateWithItems = GroceryList & { items: GroceryItem[] };
 
 type IngredientDraft = { name: string; quantity: string };
 
 const EMPTY_INGREDIENT: IngredientDraft = { name: '', quantity: '' };
+
+const WEEKDAY_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export function GroceriesSection({ onBack }: { onBack: () => void }) {
   const theme = useTheme();
@@ -32,8 +39,17 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
   const grocery = useGrocery();
   const recipesHook = useRecipes();
   const { recipes, loading: recipesLoading } = recipesHook;
+  const mealPlans = useMealPlans();
 
   const [mode, setMode] = useState<Mode>('list');
+
+  // Weekly dinner plan
+  const [planWeekStart, setPlanWeekStart] = useState(() => startOfWeek(new Date()));
+  const [mealComposerDate, setMealComposerDate] = useState<string | null>(null);
+  const [mealPickMode, setMealPickMode] = useState<'recipe' | 'custom'>('recipe');
+  const [mealCustomTitle, setMealCustomTitle] = useState('');
+  const [mealSubmitting, setMealSubmitting] = useState(false);
+  const [addingWeekIngredients, setAddingWeekIngredients] = useState(false);
 
   // Item composer (doubles as the edit form when editingItemId is set)
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -88,6 +104,19 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
 
   const usedRecipeCategories = RECIPE_CATEGORIES.filter((c) => recipes.some((r) => r.category === c.value));
   const visibleRecipes = recipeCategoryFilter === 'all' ? recipes : recipes.filter((r) => r.category === recipeCategoryFilter);
+
+  const weekDates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(planWeekStart);
+    d.setDate(d.getDate() + i);
+    return toLocalISODate(d);
+  });
+  const plansByDate = new Map(mealPlans.plans.map((p) => [p.plan_date, p]));
+  const weekLabel = (() => {
+    const start = new Date(`${weekDates[0]}T00:00:00`);
+    const end = new Date(`${weekDates[6]}T00:00:00`);
+    const fmt = (d: Date) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return `${fmt(start)} – ${fmt(end)}`;
+  })();
 
   function memberName(userId: string | null) {
     if (!userId) return null;
@@ -394,6 +423,92 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
     }
   }
 
+  // --- Weekly dinner plan ---
+
+  function goToPreviousWeek() {
+    const d = new Date(planWeekStart);
+    d.setDate(d.getDate() - 7);
+    setPlanWeekStart(d);
+  }
+
+  function goToNextWeek() {
+    const d = new Date(planWeekStart);
+    d.setDate(d.getDate() + 7);
+    setPlanWeekStart(d);
+  }
+
+  function openMealComposer(dateIso: string) {
+    setMealComposerDate(dateIso);
+    setMealPickMode('recipe');
+    setMealCustomTitle('');
+  }
+
+  function closeMealComposer() {
+    setMealComposerDate(null);
+    setMealCustomTitle('');
+  }
+
+  async function handlePickRecipeForMeal(recipe: Recipe) {
+    if (!mealComposerDate) return;
+    setMealSubmitting(true);
+    try {
+      await mealPlans.setMeal({ planDate: mealComposerDate, recipeId: recipe.id, title: null });
+      closeMealComposer();
+    } catch (err) {
+      showAlert("Couldn't plan dinner", err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setMealSubmitting(false);
+    }
+  }
+
+  async function handleSaveCustomMeal() {
+    if (!mealComposerDate || !mealCustomTitle.trim()) return;
+    setMealSubmitting(true);
+    try {
+      await mealPlans.setMeal({ planDate: mealComposerDate, recipeId: null, title: mealCustomTitle.trim() });
+      closeMealComposer();
+    } catch (err) {
+      showAlert("Couldn't plan dinner", err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setMealSubmitting(false);
+    }
+  }
+
+  function confirmClearMeal(plan: MealPlan) {
+    showAlert('Remove planned dinner', `Clear the plan for this day?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          if (mealComposerDate === plan.plan_date) closeMealComposer();
+          mealPlans.clearMeal(plan).catch(() => showAlert("Couldn't remove plan"));
+        },
+      },
+    ]);
+  }
+
+  async function handleAddWeekIngredients() {
+    const weekPlans = weekDates.map((d) => plansByDate.get(d)).filter((p): p is MealPlan => !!p && !!p.recipe_id);
+    const weekIngredients = weekPlans.flatMap((plan) => {
+      const recipe = recipes.find((r) => r.id === plan.recipe_id);
+      return (recipe?.ingredients ?? []).map((i) => ({ name: i.name, quantity: i.quantity, category: i.category ?? 'other' }));
+    });
+    if (weekIngredients.length === 0) {
+      showAlert('Nothing to add', 'Plan a dinner with a saved recipe first.');
+      return;
+    }
+    setAddingWeekIngredients(true);
+    try {
+      const added = await grocery.addItemsToActiveList(weekIngredients);
+      showAlert(added > 0 ? `Added ${added} item${added === 1 ? '' : 's'} to your list` : 'Already on your list', undefined);
+    } catch (err) {
+      showAlert("Couldn't add ingredients", err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setAddingWeekIngredients(false);
+    }
+  }
+
   function renderCategoryPills(selected: GroceryCategory, onSelect: (c: GroceryCategory) => void) {
     return (
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
@@ -414,9 +529,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={onBack} hitSlop={8}>
-          <ThemedText type="linkPrimary">‹ Home</ThemedText>
-        </Pressable>
+        <BackButton label="Home" onPress={onBack} />
         {mode === 'list' && checkedCount > 0 && (
           <Pressable onPress={confirmClearChecked} hitSlop={8}>
             <ThemedText type="small" themeColor="textSecondary">
@@ -427,13 +540,13 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
       </View>
 
       <View style={styles.modeRow}>
-        {(['list', 'recipes'] as const).map((m) => (
+        {(['list', 'recipes', 'plan'] as const).map((m) => (
           <Pressable
             key={m}
             onPress={() => setMode(m)}
             style={[styles.pill, styles.modePill, { backgroundColor: theme.backgroundSelected }, mode === m && { backgroundColor: theme.accent }]}>
             <ThemedText type="small" themeColor={mode === m ? 'background' : 'textSecondary'}>
-              {m === 'list' ? 'Grocery List' : 'Recipes'}
+              {m === 'list' ? 'Grocery List' : m === 'recipes' ? 'Recipes' : 'Dinner Plan'}
             </ThemedText>
           </Pressable>
         ))}
@@ -735,7 +848,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
             )}
           </CollapsibleCard>
         </ScrollView>
-      ) : (
+      ) : mode === 'recipes' ? (
         <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
           <Animated.View layout={LinearTransition.duration(200)}>
             <ThemedView type="backgroundElement" style={styles.addCard}>
@@ -941,6 +1054,157 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
             );
           })}
         </ScrollView>
+      ) : (
+        <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+          <ThemedView type="backgroundElement" style={styles.weekNavCard}>
+            <View style={styles.weekNavRow}>
+              <NavArrowButton direction="prev" onPress={goToPreviousWeek} />
+              <ThemedText type="smallBold">{weekLabel}</ThemedText>
+              <NavArrowButton direction="next" onPress={goToNextWeek} />
+            </View>
+
+            <Pressable
+              onPress={handleAddWeekIngredients}
+              disabled={addingWeekIngredients}
+              style={({ pressed }) => pressed && styles.pressed}>
+              <ThemedView type="backgroundSelected" style={[styles.addButton, addingWeekIngredients && styles.saveButtonDisabled]}>
+                {addingWeekIngredients ? (
+                  <ActivityIndicator color={theme.text} />
+                ) : (
+                  <ThemedText type="smallBold">🛒 Add this week&apos;s ingredients to the list</ThemedText>
+                )}
+              </ThemedView>
+            </Pressable>
+          </ThemedView>
+
+          {weekDates.map((dateIso, i) => {
+            const plan = plansByDate.get(dateIso);
+            const dayDate = new Date(`${dateIso}T00:00:00`);
+            const isComposerOpen = mealComposerDate === dateIso;
+            const recipe = plan?.recipe_id ? recipes.find((r) => r.id === plan.recipe_id) : null;
+
+            return (
+              <ThemedView key={dateIso} type="backgroundElement" style={styles.dayCard}>
+                <View style={styles.dayHeaderRow}>
+                  <View style={styles.templateNameColumn}>
+                    <ThemedText type="smallBold">{WEEKDAY_FULL[i]}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      {dayDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    </ThemedText>
+                  </View>
+                  {plan && (
+                    <Pressable onPress={() => confirmClearMeal(plan)} hitSlop={8}>
+                      <ThemedText themeColor="textSecondary" style={styles.deleteIcon}>
+                        ×
+                      </ThemedText>
+                    </Pressable>
+                  )}
+                </View>
+
+                {plan ? (
+                  <Pressable onPress={() => openMealComposer(dateIso)}>
+                    {/* A plan's recipe_id is on delete set null (the app-wide
+                        convention) — if the linked recipe was since deleted,
+                        neither `recipe` nor `plan.title` (never set for a
+                        recipe-linked plan) would be available, so this falls
+                        back rather than rendering a blank, confusing row. */}
+                    <ThemedText type="default">{recipe ? recipe.title : (plan.title ?? 'Recipe removed')}</ThemedText>
+                    {recipe && (
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {recipeCategoryLabel(recipe.category)}
+                        {recipe.servings ? ` · Serves ${recipe.servings}` : ''}
+                      </ThemedText>
+                    )}
+                  </Pressable>
+                ) : !isComposerOpen ? (
+                  <Pressable onPress={() => openMealComposer(dateIso)} hitSlop={8}>
+                    <ThemedText type="small" themeColor="accent">
+                      + Plan a dinner
+                    </ThemedText>
+                  </Pressable>
+                ) : null}
+
+                {isComposerOpen && (
+                  <View style={styles.mealComposer}>
+                    <View style={styles.editingRow}>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {plan ? 'Change dinner' : 'Plan dinner'}
+                      </ThemedText>
+                      <Pressable onPress={closeMealComposer} hitSlop={8}>
+                        <ThemedText type="small" themeColor="accent">
+                          Cancel
+                        </ThemedText>
+                      </Pressable>
+                    </View>
+
+                    <View style={styles.modeRow}>
+                      {(['recipe', 'custom'] as const).map((pm) => (
+                        <Pressable
+                          key={pm}
+                          onPress={() => setMealPickMode(pm)}
+                          style={[
+                            styles.pill,
+                            styles.modePill,
+                            { backgroundColor: theme.backgroundSelected },
+                            mealPickMode === pm && { backgroundColor: theme.accent },
+                          ]}>
+                          <ThemedText type="small" themeColor={mealPickMode === pm ? 'background' : 'textSecondary'}>
+                            {pm === 'recipe' ? 'Saved recipe' : 'Something else'}
+                          </ThemedText>
+                        </Pressable>
+                      ))}
+                    </View>
+
+                    {mealPickMode === 'recipe' ? (
+                      recipes.length === 0 ? (
+                        <ThemedText type="small" themeColor="textSecondary">
+                          No saved recipes yet — add one in the Recipes tab, or plan something else below.
+                        </ThemedText>
+                      ) : (
+                        <View style={styles.mealRecipeList}>
+                          {recipes.map((r) => (
+                            <Pressable
+                              key={r.id}
+                              disabled={mealSubmitting}
+                              onPress={() => handlePickRecipeForMeal(r)}
+                              style={styles.templateRow}>
+                              <ThemedText type="small" style={styles.templateNameColumn}>
+                                {r.title}
+                              </ThemedText>
+                            </Pressable>
+                          ))}
+                        </View>
+                      )
+                    ) : (
+                      <>
+                        <TextInput
+                          style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
+                          placeholder="e.g. Takeout, Leftovers…"
+                          placeholderTextColor={theme.textSecondary}
+                          value={mealCustomTitle}
+                          onChangeText={setMealCustomTitle}
+                          onSubmitEditing={handleSaveCustomMeal}
+                          returnKeyType="done"
+                        />
+                        <Pressable
+                          style={[
+                            styles.addButton,
+                            { backgroundColor: theme.accent, opacity: mealCustomTitle.trim() && !mealSubmitting ? 1 : 0.5 },
+                          ]}
+                          disabled={!mealCustomTitle.trim() || mealSubmitting}
+                          onPress={handleSaveCustomMeal}>
+                          <ThemedText type="smallBold" themeColor="background">
+                            Save
+                          </ThemedText>
+                        </Pressable>
+                      </>
+                    )}
+                  </View>
+                )}
+              </ThemedView>
+            );
+          })}
+        </ScrollView>
       )}
     </View>
   );
@@ -951,7 +1215,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   modeRow: { flexDirection: 'row', gap: Spacing.two },
   modePill: { flex: 1, alignItems: 'center' },
-  addCard: { borderRadius: Spacing.four, padding: Spacing.three, gap: Spacing.two },
+  addCard: { borderRadius: Spacing.four, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, gap: Spacing.two },
   editingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   input: { fontSize: 16, paddingVertical: Spacing.one, paddingHorizontal: Spacing.two, borderRadius: Spacing.two },
   quantityInput: { marginTop: Spacing.one },
@@ -977,18 +1241,21 @@ const styles = StyleSheet.create({
   },
   itemTextWrapper: { flex: 1, gap: Spacing.half },
   doneText: { textDecorationLine: 'line-through' },
-  deleteIcon: { fontSize: 20, lineHeight: 20, paddingHorizontal: Spacing.one },
+  deleteIcon: { fontSize: 24, lineHeight: 24, paddingHorizontal: Spacing.one },
   deleteText: { color: '#e5484d' },
   saveTemplateRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  saveTemplateInput: { flex: 1 },
+  saveTemplateInput: { flex: 1, minWidth: 0 },
   templateRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   templateNameColumn: { flex: 1, gap: Spacing.half },
   templateEditor: { gap: Spacing.two, paddingLeft: Spacing.three, marginTop: Spacing.one, marginBottom: Spacing.two },
   addCurrentListButton: { alignItems: 'center', paddingVertical: Spacing.two, borderRadius: Spacing.two },
   useButton: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, borderRadius: Spacing.five },
   ingredientRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  ingredientNameInput: { flex: 2 },
-  ingredientQuantityInput: { flex: 1 },
+  // minWidth: 0 overrides web's default min-width:auto on flex items —
+  // without it a rendered <input>'s intrinsic size wins over flex-grow
+  // and the row overflows instead of splitting per the flex ratio.
+  ingredientNameInput: { flex: 2, minWidth: 0 },
+  ingredientQuantityInput: { flex: 1, minWidth: 0 },
   instructionsInput: { minHeight: 80, textAlignVertical: 'top' },
   recipeCard: { borderRadius: Spacing.four, padding: Spacing.three, gap: Spacing.two },
   recipeHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -996,4 +1263,10 @@ const styles = StyleSheet.create({
   recipeDetails: { gap: Spacing.two, marginTop: Spacing.one },
   instructionsText: { marginTop: Spacing.one },
   recipeActionsRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.four, marginTop: Spacing.one },
+  weekNavCard: { borderRadius: Spacing.four, padding: Spacing.three, gap: Spacing.two },
+  weekNavRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  dayCard: { borderRadius: Spacing.four, padding: Spacing.three, gap: Spacing.two },
+  dayHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  mealComposer: { gap: Spacing.two, marginTop: Spacing.one },
+  mealRecipeList: { gap: Spacing.one },
 });

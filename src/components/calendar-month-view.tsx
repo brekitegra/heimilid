@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { NavArrowButton } from '@/components/nav-arrow-button';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -54,19 +55,11 @@ export function CalendarMonthView({ month, onMonthChange, markersByDate, selecte
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-        <Pressable onPress={() => onMonthChange(new Date(year, monthIndex - 1, 1))} hitSlop={8}>
-          <ThemedText type="linkPrimary" style={styles.navArrow}>
-            ‹
-          </ThemedText>
-        </Pressable>
+        <NavArrowButton direction="prev" onPress={() => onMonthChange(new Date(year, monthIndex - 1, 1))} />
         <ThemedText type="smallBold">
           {MONTH_NAMES[monthIndex]} {year}
         </ThemedText>
-        <Pressable onPress={() => onMonthChange(new Date(year, monthIndex + 1, 1))} hitSlop={8}>
-          <ThemedText type="linkPrimary" style={styles.navArrow}>
-            ›
-          </ThemedText>
-        </Pressable>
+        <NavArrowButton direction="next" onPress={() => onMonthChange(new Date(year, monthIndex + 1, 1))} />
       </View>
 
       <View style={styles.weekRow}>
@@ -115,7 +108,6 @@ export function CalendarMonthView({ month, onMonthChange, markersByDate, selecte
 const styles = StyleSheet.create({
   container: { gap: Spacing.two },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.two },
-  navArrow: { fontSize: 20, lineHeight: 24 },
   weekRow: { flexDirection: 'row' },
   weekdayLabel: { flex: 1, textAlign: 'center' },
   dayCell: { flex: 1, alignItems: 'center', gap: 2, paddingVertical: Spacing.one },

@@ -1,29 +1,13 @@
+import { startOfWeek } from '@/lib/date-format';
 import type { Practice } from '@/types/practice';
+
+// Re-exported so existing imports of these from practice-format.ts (there
+// before a second feature needed the same date math) keep working
+// unchanged — see date-format.ts for the actual definitions.
+export { localIsoDateInDays, toLocalISODate } from '@/lib/date-format';
 
 export const WEEKDAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 export const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-/** Formats a Date as its own local calendar day (YYYY-MM-DD), never
- * converting through UTC first. `date.toISOString().slice(0, 10)` (used
- * elsewhere in the app for quick-pick due dates) shifts by a day right
- * around midnight in any timezone not exactly UTC — a risk worth avoiding
- * here specifically, since the calendar view would make an off-by-one-day
- * bug immediately and embarrassingly visible. */
-export function toLocalISODate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-/** Local-calendar-day-safe ISO date string N days from `from` (default
- * today) — see toLocalISODate for why this doesn't just use
- * `date.toISOString()` the way chore-format.ts's isoDateInDays does. */
-export function localIsoDateInDays(days: number, from = new Date()): string {
-  const d = new Date(from);
-  d.setDate(d.getDate() + days);
-  return toLocalISODate(d);
-}
 
 /** Postgres `time` comes back as "16:00:00" — format as "4:00 PM". Returns
  * null for an unset time rather than a confusing empty string. */
@@ -45,15 +29,6 @@ export function formatTimeRange(startTime: string | null, endTime: string | null
   const end = formatTime12h(endTime);
   if (start && end) return `${start}–${end}`;
   return start ?? end ?? null;
-}
-
-function startOfWeek(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diffToMonday = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diffToMonday);
-  d.setHours(0, 0, 0, 0);
-  return d;
 }
 
 /** "Last attended this week" caption for a recurring practice — mirrors

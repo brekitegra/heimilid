@@ -3,11 +3,12 @@ import { Platform, StyleSheet } from 'react-native';
 import Animated, { FadeIn, FadeOut, SlideInRight, SlideOutRight } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ChoresIcon, FinancesIcon, GroceriesIcon, KidsIcon, PetsIcon } from '@/components/icons/section-icons';
+import { ChoresIcon, FinancesIcon, GroceriesIcon, HealthIcon, KidsIcon, PetsIcon } from '@/components/icons/section-icons';
 import { HubCard } from '@/components/hub-card';
 import { ChoresSection } from '@/components/sections/chores-section';
 import { FinancesSection } from '@/components/sections/finances-section';
 import { GroceriesSection } from '@/components/sections/groceries-section';
+import { HealthSection } from '@/components/sections/health-section';
 import { KidsSection } from '@/components/sections/kids-section';
 import { PetsSection } from '@/components/sections/pets-section';
 import { ThemedText } from '@/components/themed-text';
@@ -16,14 +17,15 @@ import { WebBadge } from '@/components/web-badge';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useHousehold } from '@/hooks/use-household';
 
-type Section = 'chores' | 'groceries' | 'pets' | 'finances' | 'kids';
+type Section = 'chores' | 'groceries' | 'pets' | 'finances' | 'kids' | 'health';
 
 const SECTIONS: { key: Section; title: string; hint: string; Icon: typeof ChoresIcon }[] = [
   { key: 'chores', title: 'Chores', hint: 'Assign and track household chores', Icon: ChoresIcon },
-  { key: 'groceries', title: 'Groceries', hint: 'Shopping lists and recipes', Icon: GroceriesIcon },
+  { key: 'groceries', title: 'Groceries', hint: 'Shopping lists, recipes, and dinner plans', Icon: GroceriesIcon },
   { key: 'pets', title: 'Pets', hint: 'Feeding, vet visits, and care', Icon: PetsIcon },
   { key: 'finances', title: 'Finances', hint: 'Accounts and recurring bills', Icon: FinancesIcon },
   { key: 'kids', title: 'Kids', hint: 'School, practices, and star rewards', Icon: KidsIcon },
+  { key: 'health', title: 'Health', hint: 'Training, macros, and TDEE — just for you', Icon: HealthIcon },
 ];
 
 const SECTION_COMPONENTS: Record<Section, (props: { onBack: () => void }) => React.JSX.Element> = {
@@ -32,6 +34,7 @@ const SECTION_COMPONENTS: Record<Section, (props: { onBack: () => void }) => Rea
   pets: PetsSection,
   finances: FinancesSection,
   kids: KidsSection,
+  health: HealthSection,
 };
 
 export default function HomeScreen() {
@@ -95,8 +98,11 @@ const styles = StyleSheet.create({
     maxWidth: MaxContentWidth,
     alignSelf: 'stretch',
     // The web tab bar (app-tabs.web.tsx) is position: absolute over the
-    // page, so content needs its own top offset to clear it.
-    ...Platform.select({ web: { paddingTop: Spacing.six } }),
+    // page, so content needs its own top offset to clear it. Spacing.six
+    // alone lines up almost exactly flush with the tab bar's own bottom
+    // edge (its own margin included) — add a bit more so there's an
+    // actual visible gap instead of content nearly touching the tab bar.
+    ...Platform.select({ web: { paddingTop: Spacing.six + Spacing.three } }),
   },
   hub: { flex: 1, alignItems: 'center', gap: Spacing.three },
   sectionWrapper: { flex: 1, alignSelf: 'stretch' },

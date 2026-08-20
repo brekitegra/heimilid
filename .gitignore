@@ -41,3 +41,6 @@ example
 # generated native folders
 /ios
 /android
+
+# Playwright MCP test-run screenshots — throwaway, not part of the app
+.playwright-mcp/

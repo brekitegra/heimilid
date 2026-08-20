@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View }
 import Animated, { FadeOut, LinearTransition } from 'react-native-reanimated';
 
 import { Avatar } from '@/components/avatar';
+import { BackButton } from '@/components/back-button';
 import { Checkbox } from '@/components/checkbox';
 import { PetsIcon } from '@/components/icons/section-icons';
 import { PetsPawBackground } from '@/components/pets-paw-background';
@@ -716,9 +717,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
     <View style={styles.container}>
       <PetsPawBackground />
       <View style={styles.header}>
-        <Pressable onPress={onBack} hitSlop={8}>
-          <ThemedText type="linkPrimary">‹ Home</ThemedText>
-        </Pressable>
+        <BackButton label="Home" onPress={onBack} />
         {totalVisible > 0 && (
           <ThemedText type="small" themeColor="textSecondary">
             {totalDone} of {totalVisible} done
@@ -881,7 +880,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
 const styles = StyleSheet.create({
   container: { flex: 1, alignSelf: 'stretch', gap: Spacing.three },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  addCard: { borderRadius: Spacing.four, padding: Spacing.three, gap: Spacing.two },
+  addCard: { borderRadius: Spacing.four, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, gap: Spacing.two },
   editingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   input: { fontSize: 16, paddingVertical: Spacing.one },
   pillRow: { flexGrow: 0 },
@@ -912,7 +911,7 @@ const styles = StyleSheet.create({
   petEmptyText: { paddingVertical: Spacing.one },
   notesInput: { minHeight: 60, textAlignVertical: 'top', borderRadius: Spacing.two, paddingHorizontal: Spacing.two },
   supplyRow: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center' },
-  supplyInput: { flex: 1, fontSize: 14, paddingHorizontal: Spacing.two, paddingVertical: Spacing.two, borderRadius: Spacing.two },
+  supplyInput: { flex: 1, minWidth: 0, fontSize: 14, paddingHorizontal: Spacing.two, paddingVertical: Spacing.two, borderRadius: Spacing.two },
   supplyAddButton: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, borderRadius: Spacing.two },
   taskList: { gap: Spacing.two },
   taskComposer: { borderRadius: Spacing.three, padding: Spacing.three, gap: Spacing.two },
@@ -929,5 +928,5 @@ const styles = StyleSheet.create({
   checkboxSlot: { position: 'relative' },
   taskTextWrapper: { flex: 1, gap: Spacing.half },
   doneText: { textDecorationLine: 'line-through' },
-  deleteIcon: { fontSize: 20, lineHeight: 20, paddingHorizontal: Spacing.one },
+  deleteIcon: { fontSize: 24, lineHeight: 24, paddingHorizontal: Spacing.one },
 });

@@ -43,8 +43,7 @@ export function LoansIcon({ color, size = 24 }: SectionIconProps) {
   );
 }
 
-/** A flag on a pole — Savings (progress toward a goal, milestones along
- * the way). */
+/** A flag on a pole — Savings (progress toward a goal). */
 export function SavingsIcon({ color, size = 24 }: SectionIconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">

@@ -9,13 +9,14 @@ import { Spacing } from '@/constants/theme';
 import { HealthProfileSection } from '@/components/sections/health-profile-section';
 import { HealthTodaySection } from '@/components/sections/health-today-section';
 import { HealthTrainingSection } from '@/components/sections/health-training-section';
+import { useTranslation, type TranslationKey } from '@/hooks/use-language';
 
 type HealthTab = 'today' | 'training' | 'profile';
 
-const TABS: { key: HealthTab; title: string; hint: string; Icon: typeof TodayIcon }[] = [
-  { key: 'today', title: 'Today', hint: "Log food, see today's macros", Icon: TodayIcon },
-  { key: 'training', title: 'Training', hint: 'Workouts, sets, and reps', Icon: TrainingIcon },
-  { key: 'profile', title: 'Profile', hint: 'TDEE calculator and targets', Icon: TargetIcon },
+const TABS: { key: HealthTab; titleKey: TranslationKey; hintKey: TranslationKey; Icon: typeof TodayIcon }[] = [
+  { key: 'today', titleKey: 'healthTabTodayTitle', hintKey: 'healthTabTodayHint', Icon: TodayIcon },
+  { key: 'training', titleKey: 'healthTabTrainingTitle', hintKey: 'healthTabTrainingHint', Icon: TrainingIcon },
+  { key: 'profile', titleKey: 'healthTabProfileTitle', hintKey: 'healthTabProfileHint', Icon: TargetIcon },
 ];
 
 const TAB_COMPONENTS: Record<HealthTab, (props: { onBack: () => void }) => React.JSX.Element> = {
@@ -29,6 +30,7 @@ const TAB_COMPONENTS: Record<HealthTab, (props: { onBack: () => void }) => React
  * place, one level deeper. Chosen so navigating within Health feels
  * instantly familiar rather than introducing a new UI language. */
 export function HealthSection({ onBack }: { onBack: () => void }) {
+  const t = useTranslation();
   const [activeTab, setActiveTab] = useState<HealthTab | null>(null);
   const ActiveTabComponent = activeTab ? TAB_COMPONENTS[activeTab] : null;
 
@@ -41,12 +43,12 @@ export function HealthSection({ onBack }: { onBack: () => void }) {
       ) : (
         <Animated.View entering={FadeIn.duration(220)} exiting={FadeOut.duration(150)} style={styles.hub}>
           <View style={styles.header}>
-            <BackButton label="Home" onPress={onBack} />
+            <BackButton label={t('home')} onPress={onBack} />
           </View>
 
           <View style={styles.cardList}>
             {TABS.map((tab) => (
-              <HubCard key={tab.key} title={tab.title} hint={tab.hint} Icon={tab.Icon} onPress={() => setActiveTab(tab.key)} />
+              <HubCard key={tab.key} title={t(tab.titleKey)} hint={t(tab.hintKey)} Icon={tab.Icon} onPress={() => setActiveTab(tab.key)} />
             ))}
           </View>
         </Animated.View>

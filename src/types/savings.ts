@@ -14,20 +14,6 @@ export interface SavingsGoalInput {
   targetDate: string | null;
 }
 
-export interface SavingsMilestone {
-  id: string;
-  goal_id: string;
-  label: string;
-  target_amount: number;
-  created_by: string;
-  created_at: string;
-}
-
-export interface SavingsMilestoneInput {
-  label: string;
-  targetAmount: number;
-}
-
 export interface SavingsContribution {
   id: string;
   goal_id: string;

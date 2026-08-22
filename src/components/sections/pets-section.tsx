@@ -17,40 +17,64 @@ import { ageYearsFromBirthDate, birthDateFromAgeYears, formatPetAge, speciesEmoj
 import { useDelayedBlur } from '@/hooks/use-delayed-blur';
 import { useGrocery } from '@/hooks/use-grocery';
 import { useHousehold } from '@/hooks/use-household';
+import { useLanguage, useTranslation, type Language, type TranslationKey } from '@/hooks/use-language';
 import { isPetCareDoneNow, usePetCare } from '@/hooks/use-pet-care';
 import { usePets } from '@/hooks/use-pets';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
+import { isSameName } from '@/lib/duplicate-check';
 import { XpPopup } from '@/components/xp-popup';
 import type { PetCareFrequency, PetCareTask, PetCareTaskInput } from '@/types/pet-care';
 import type { Pet, PetInput } from '@/types/pet';
 
-const SPECIES_OPTIONS = ['Dog', 'Cat', 'Bird', 'Fish', 'Rabbit', 'Other'];
+// `value` stays a fixed English code, unlike Kids' quick-picks — this one
+// doubles as the lookup key into pet-format.ts's SPECIES_EMOJI map, so
+// translating the label alone (storing whatever the pill currently says)
+// would silently break that lookup. `labelKey` is display-only.
+const SPECIES_OPTIONS: { value: string; labelKey: TranslationKey }[] = [
+  { value: 'Dog', labelKey: 'petsSpeciesDog' },
+  { value: 'Cat', labelKey: 'petsSpeciesCat' },
+  { value: 'Bird', labelKey: 'petsSpeciesBird' },
+  { value: 'Fish', labelKey: 'petsSpeciesFish' },
+  { value: 'Rabbit', labelKey: 'petsSpeciesRabbit' },
+  { value: 'Other', labelKey: 'petsSpeciesOther' },
+];
+const SPECIES_LABEL_KEY: Record<string, TranslationKey> = {
+  Dog: 'petsSpeciesDog',
+  Cat: 'petsSpeciesCat',
+  Bird: 'petsSpeciesBird',
+  Fish: 'petsSpeciesFish',
+  Rabbit: 'petsSpeciesRabbit',
+  Other: 'petsSpeciesOther',
+};
 
-const FREQUENCIES: { value: PetCareFrequency; label: string }[] = [
-  { value: 'once', label: 'Once' },
-  { value: 'daily', label: 'Daily' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'yearly', label: 'Yearly' },
+const FREQUENCIES: { value: PetCareFrequency; labelKey: TranslationKey }[] = [
+  { value: 'once', labelKey: 'frequencyOnce' },
+  { value: 'daily', labelKey: 'frequencyDaily' },
+  { value: 'weekly', labelKey: 'frequencyWeekly' },
+  { value: 'monthly', labelKey: 'frequencyMonthly' },
+  { value: 'yearly', labelKey: 'frequencyYearly' },
 ];
 
-const DUE_DATE_OPTIONS: { label: string; value: string | null }[] = [
-  { label: 'No date', value: null },
-  { label: 'Today', value: isoDateInDays(0) },
-  { label: 'Tomorrow', value: isoDateInDays(1) },
-  { label: 'In a week', value: isoDateInDays(7) },
+const DUE_DATE_OPTIONS: { labelKey: TranslationKey; value: string | null }[] = [
+  { labelKey: 'dueDateNone', value: null },
+  { labelKey: 'dueDateToday', value: isoDateInDays(0) },
+  { labelKey: 'dueDateTomorrow', value: isoDateInDays(1) },
+  { labelKey: 'dueDateInAWeek', value: isoDateInDays(7) },
 ];
 
 // Common care tasks, one tap away instead of typing a title from scratch —
-// each comes with a sensible default frequency.
-const QUICK_TASKS: { label: string; frequency: PetCareFrequency }[] = [
-  { label: 'Feed', frequency: 'daily' },
-  { label: 'Walk', frequency: 'daily' },
-  { label: 'Vet checkup', frequency: 'once' },
-  { label: 'Grooming', frequency: 'monthly' },
-  { label: 'Nail trim', frequency: 'monthly' },
-  { label: 'Medication', frequency: 'daily' },
+// each comes with a sensible default frequency. Tapping one stores
+// t(labelKey) directly as the task's freeform title (same approach as
+// Kids' quick-picks) — there's no lookup anywhere keyed off the exact
+// title text, unlike SPECIES_OPTIONS above, so this is safe.
+const QUICK_TASKS: { labelKey: TranslationKey; frequency: PetCareFrequency }[] = [
+  { labelKey: 'petsQuickTaskFeed', frequency: 'daily' },
+  { labelKey: 'petsQuickTaskWalk', frequency: 'daily' },
+  { labelKey: 'petsQuickTaskVetCheckup', frequency: 'once' },
+  { labelKey: 'petsQuickTaskGrooming', frequency: 'monthly' },
+  { labelKey: 'petsQuickTaskNailTrim', frequency: 'monthly' },
+  { labelKey: 'petsQuickTaskMedication', frequency: 'daily' },
 ];
 
 const OVERDUE_COLOR = '#e5484d';
@@ -67,27 +91,34 @@ function initials(name: string | null | undefined) {
 
 type MetaPart = { text: string; warn?: boolean };
 
-function buildMeta(task: PetCareTask, assigneeName: string | null | undefined, completerName: string | null | undefined): MetaPart[] {
-  const parts: MetaPart[] = [{ text: FREQUENCIES.find((f) => f.value === task.frequency)?.label ?? '' }];
+function buildMeta(
+  task: PetCareTask,
+  assigneeName: string | null | undefined,
+  completerName: string | null | undefined,
+  t: ReturnType<typeof useTranslation>,
+  language: Language
+): MetaPart[] {
+  const frequencyKey = FREQUENCIES.find((f) => f.value === task.frequency)?.labelKey;
+  const parts: MetaPart[] = [{ text: frequencyKey ? t(frequencyKey) : '' }];
   if (assigneeName) parts.push({ text: assigneeName });
 
   const done = isPetCareDoneNow(task);
 
   if (task.frequency === 'once') {
     if (!task.is_done) {
-      const due = formatDueDate(task.due_date);
+      const due = formatDueDate(task.due_date, new Date(), language);
       if (due) parts.push({ text: due.text, warn: due.overdue });
     }
   } else {
-    const streak = formatCareStreak(task);
+    const streak = formatCareStreak(task, language);
     if (streak) parts.push({ text: streak });
     if (!done) {
-      const lastDone = formatCareLastDone(task);
+      const lastDone = formatCareLastDone(task, new Date(), language);
       if (lastDone) parts.push({ text: lastDone });
     }
   }
 
-  if (done && completerName) parts.push({ text: `Completed by ${completerName}` });
+  if (done && completerName) parts.push({ text: t('petsCompletedBy', { name: completerName }) });
 
   return parts;
 }
@@ -110,26 +141,31 @@ type PetMood = { emoji: string; label: string; caption: string; color: string };
  * out a currently-neglected recurring task. Only "is something overdue
  * right now" and "are ongoing routines being kept up" should matter —
  * archived one-off completions carry no ongoing signal either way. */
-function computePetMood(petTasks: PetCareTask[], theme: { textSecondary: string }): PetMood | null {
+function computePetMood(
+  petTasks: PetCareTask[],
+  theme: { textSecondary: string },
+  t: ReturnType<typeof useTranslation>,
+  language: Language
+): PetMood | null {
   if (petTasks.length === 0) return null;
 
   const now = new Date();
   const recurringTasks = petTasks.filter((t) => t.frequency !== 'once');
   const pendingOnce = petTasks.filter((t) => t.frequency === 'once' && !t.is_done);
-  const overdueOnce = pendingOnce.filter((t) => formatDueDate(t.due_date, now)?.overdue);
+  const overdueOnce = pendingOnce.filter((t) => formatDueDate(t.due_date, now, language)?.overdue);
   const recurringDoneNow = recurringTasks.filter((t) => isPetCareDoneNow(t, now)).length;
 
   const bestStreakTask = recurringTasks.reduce<PetCareTask | null>(
     (best, t) => (!best || t.streak_count > best.streak_count ? t : best),
     null
   );
-  const streakCaption = bestStreakTask ? formatCareStreak(bestStreakTask) : null;
+  const streakCaption = bestStreakTask ? formatCareStreak(bestStreakTask, language) : null;
 
   if (overdueOnce.length > 0) {
     return {
       emoji: '😟',
-      label: 'Needs love',
-      caption: `${overdueOnce.length} task${overdueOnce.length === 1 ? '' : 's'} overdue`,
+      label: t('petsMoodNeedsLove'),
+      caption: t(overdueOnce.length === 1 ? 'petsMoodTasksOverdueOne' : 'petsMoodTasksOverdueOther', { count: overdueOnce.length }),
       color: OVERDUE_COLOR,
     };
   }
@@ -140,22 +176,25 @@ function computePetMood(petTasks: PetCareTask[], theme: { textSecondary: string 
   if (recurringTasks.length === 0) {
     return {
       emoji: '🤩',
-      label: 'Thriving',
-      caption: pendingOnce.length > 0 ? `${pendingOnce.length} upcoming task${pendingOnce.length === 1 ? '' : 's'}` : 'All caught up',
+      label: t('petsMoodThriving'),
+      caption:
+        pendingOnce.length > 0
+          ? t(pendingOnce.length === 1 ? 'petsMoodUpcomingTasksOne' : 'petsMoodUpcomingTasksOther', { count: pendingOnce.length })
+          : t('petsMoodAllCaughtUp'),
       color: THRIVING_COLOR,
     };
   }
 
   const ratio = recurringDoneNow / recurringTasks.length;
-  const careCaption = `${recurringDoneNow} of ${recurringTasks.length} routines on track`;
+  const careCaption = t('petsMoodRoutinesOnTrack', { done: recurringDoneNow, total: recurringTasks.length });
 
   if (ratio >= 0.8) {
-    return { emoji: '🤩', label: 'Thriving', caption: streakCaption ?? careCaption, color: THRIVING_COLOR };
+    return { emoji: '🤩', label: t('petsMoodThriving'), caption: streakCaption ?? careCaption, color: THRIVING_COLOR };
   }
   if (ratio >= 0.5) {
-    return { emoji: '🙂', label: 'Content', caption: streakCaption ?? careCaption, color: theme.textSecondary };
+    return { emoji: '🙂', label: t('petsMoodContent'), caption: streakCaption ?? careCaption, color: theme.textSecondary };
   }
-  return { emoji: '😕', label: 'Could use more care', caption: careCaption, color: OVERDUE_COLOR };
+  return { emoji: '😕', label: t('petsMoodCouldUseMoreCare'), caption: careCaption, color: OVERDUE_COLOR };
 }
 
 /** Buckets a flat task list by pet_id, pending-before-done within each
@@ -180,6 +219,8 @@ function groupTasksByPet(taskList: PetCareTask[]): Map<string, PetCareTask[]> {
 }
 
 export function PetsSection({ onBack }: { onBack: () => void }) {
+  const t = useTranslation();
+  const { language } = useLanguage();
   const theme = useTheme();
   const { members } = useHousehold();
   const { pets, loading: petsLoading, uploadingAvatarId, addPet, updatePet, deletePet, pickAndUploadPetAvatar, removePetAvatar } =
@@ -284,7 +325,10 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
       }
       resetPetForm();
     } catch (err) {
-      showAlert(editingPetId ? "Couldn't save changes" : "Couldn't add pet", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(
+        editingPetId ? t('choresSaveErrorTitle') : t('petsErrorCouldntAddPet'),
+        err instanceof Error ? err.message : t('genericErrorMessage')
+      );
     } finally {
       setPetSubmitting(false);
     }
@@ -294,7 +338,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
     try {
       await pickAndUploadPetAvatar(pet);
     } catch (err) {
-      showAlert("Couldn't update photo", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('errorCouldntUpdatePhoto'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
@@ -302,20 +346,20 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
     try {
       await removePetAvatar(pet);
     } catch (err) {
-      showAlert("Couldn't remove photo", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('errorCouldntRemovePhoto'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
   function confirmDeletePet(pet: Pet) {
-    showAlert('Delete pet', `Remove "${pet.name}" and all of their care tasks?`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('petsConfirmDeleteTitle'), t('petsConfirmDeleteMessage', { name: pet.name }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('delete'),
         style: 'destructive',
         onPress: () => {
           if (editingPetId === pet.id) resetPetForm();
           deletePet(pet).catch((err) => {
-            showAlert("Couldn't delete pet", err instanceof Error ? err.message : 'Something went wrong');
+            showAlert(t('petsErrorCouldntDeletePet'), err instanceof Error ? err.message : t('genericErrorMessage'));
           });
         },
       },
@@ -347,18 +391,28 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
 
   async function handleTaskSubmit() {
     if (!taskComposerPetId || !taskTitle.trim()) return;
+    const duplicate = tasks.find(
+      (t) => t.pet_id === taskComposerPetId && t.id !== editingTaskId && !isPetCareDoneNow(t) && isSameName(t.title, taskTitle)
+    );
+    if (duplicate) {
+      showAlert(t('errorAlreadyOnList'), t('petsDuplicateTaskMessage', { title: duplicate.title }));
+      return;
+    }
     const input: PetCareTaskInput = { title: taskTitle, frequency: taskFrequency, assignedTo: taskAssignedTo, dueDate: taskDueDate };
     setTaskSubmitting(true);
     try {
       if (editingTaskId) {
-        const task = tasks.find((t) => t.id === editingTaskId);
+        const task = tasks.find((existing) => existing.id === editingTaskId);
         if (task) await updateTask(task, input);
       } else {
         await addTask(taskComposerPetId, input);
       }
       resetTaskForm();
     } catch (err) {
-      showAlert(editingTaskId ? "Couldn't save changes" : "Couldn't add care task", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(
+        editingTaskId ? t('choresSaveErrorTitle') : t('petsErrorCouldntAddTask'),
+        err instanceof Error ? err.message : t('genericErrorMessage')
+      );
     } finally {
       setTaskSubmitting(false);
     }
@@ -388,7 +442,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
         setXpPopups((prev) => [...prev, { id: popupId, taskId: task.id, amount: xpDelta }]);
       }
     } catch (err) {
-      showAlert("Couldn't update care task", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('petsErrorCouldntUpdateTask'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
@@ -397,15 +451,15 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
   }
 
   function confirmDeleteTask(task: PetCareTask) {
-    showAlert('Delete care task', `Remove "${task.title}"?`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('petsConfirmDeleteTaskTitle'), t('petsConfirmDeleteTaskMessage', { title: task.title }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('delete'),
         style: 'destructive',
         onPress: () => {
           if (editingTaskId === task.id) resetTaskForm();
           deleteTask(task).catch((err) => {
-            showAlert("Couldn't delete care task", err instanceof Error ? err.message : 'Something went wrong');
+            showAlert(t('petsErrorCouldntDeleteTask'), err instanceof Error ? err.message : t('genericErrorMessage'));
           });
         },
       },
@@ -420,10 +474,10 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
       const added = await addItemsToActiveList([{ name: draft, quantity: null, category: 'pets' }]);
       setSupplyDrafts((prev) => ({ ...prev, [pet.id]: '' }));
       if (added === 0) {
-        showAlert('Already on the list', `"${draft}" is already on your grocery list.`);
+        showAlert(t('errorAlreadyOnList'), t('petsAlreadyOnGroceryListMessage', { name: draft }));
       }
     } catch (err) {
-      showAlert("Couldn't add to shopping list", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('errorCouldntAddToShoppingList'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setSupplyAddingId(null);
     }
@@ -457,8 +511,8 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
 
     const assignee = members.find((m) => m.user_id === task.assigned_to)?.profile?.full_name;
     const completerName =
-      task.completed_by === currentUserId ? 'you' : members.find((m) => m.user_id === task.completed_by)?.profile?.full_name;
-    const meta = buildMeta(task, assignee, completerName);
+      task.completed_by === currentUserId ? t('you') : members.find((m) => m.user_id === task.completed_by)?.profile?.full_name;
+    const meta = buildMeta(task, assignee, completerName, t, language);
     const isDazzling = dazzlingIds.has(task.id);
     const popupsForRow = xpPopups.filter((p) => p.taskId === task.id);
 
@@ -502,17 +556,17 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
       <Animated.View layout={LinearTransition.duration(200)}>
         <ThemedView type="background" style={styles.taskComposer}>
           <View style={styles.editingRow}>
-            <ThemedText type="smallBold">{editingTaskId ? 'Edit care task' : 'New care task'}</ThemedText>
+            <ThemedText type="smallBold">{editingTaskId ? t('petsEditTaskHeader') : t('petsNewTaskHeader')}</ThemedText>
             <Pressable onPress={resetTaskForm} hitSlop={8}>
               <ThemedText type="small" themeColor="accent">
-                Cancel
+                {t('cancel')}
               </ThemedText>
             </Pressable>
           </View>
 
           <TextInput
             style={[styles.input, { color: theme.text }]}
-            placeholder="e.g. Feed, Walk, Vet checkup…"
+            placeholder={t('petsTaskTitlePlaceholder')}
             placeholderTextColor={theme.textSecondary}
             value={taskTitle}
             onChangeText={setTaskTitle}
@@ -525,15 +579,15 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
               {QUICK_TASKS.map((qt) => (
                 <Pressable
-                  key={qt.label}
+                  key={qt.labelKey}
                   onPress={() => {
-                    setTaskTitle(qt.label);
+                    setTaskTitle(t(qt.labelKey));
                     setTaskFrequency(qt.frequency);
                     if (qt.frequency !== 'once') setTaskDueDate(null);
                   }}
                   style={[styles.pill, { backgroundColor: theme.backgroundSelected }]}>
                   <ThemedText type="small" themeColor="textSecondary">
-                    {qt.label}
+                    {t(qt.labelKey)}
                   </ThemedText>
                 </Pressable>
               ))}
@@ -554,7 +608,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
                   taskFrequency === f.value && { backgroundColor: theme.accent },
                 ]}>
                 <ThemedText type="small" themeColor={taskFrequency === f.value ? 'background' : 'textSecondary'}>
-                  {f.label}
+                  {t(f.labelKey)}
                 </ThemedText>
               </Pressable>
             ))}
@@ -564,7 +618,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
               {DUE_DATE_OPTIONS.map((opt) => (
                 <Pressable
-                  key={opt.label}
+                  key={opt.labelKey}
                   onPress={() => setTaskDueDate(opt.value)}
                   style={[
                     styles.pill,
@@ -572,7 +626,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
                     taskDueDate === opt.value && { backgroundColor: theme.accent },
                   ]}>
                   <ThemedText type="small" themeColor={taskDueDate === opt.value ? 'background' : 'textSecondary'}>
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </ThemedText>
                 </Pressable>
               ))}
@@ -582,7 +636,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
           {members.length > 1 && (
             <View style={styles.assigneeRow}>
               <ThemedText type="small" themeColor="textSecondary">
-                Assign to
+                {t('assignTo')}
               </ThemedText>
               <View style={styles.assigneeAvatars}>
                 {members.map((m) => (
@@ -608,7 +662,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
             disabled={!taskTitle.trim() || taskSubmitting}
             onPress={handleTaskSubmit}>
             <ThemedText type="smallBold" themeColor="background">
-              {editingTaskId ? 'Save changes' : 'Add task'}
+              {editingTaskId ? t('saveChanges') : t('petsAddTaskButton')}
             </ThemedText>
           </Pressable>
         </ThemedView>
@@ -622,9 +676,10 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
     const petTasksAll = tasksByPet.get(pet.id) ?? [];
     const petTasksFiltered = filteredTasksByPet.get(pet.id) ?? [];
     const visibleTasks = petTasksFiltered.filter((t) => !(t.frequency === 'once' && t.is_done) || dazzlingIds.has(t.id));
-    const age = formatPetAge(pet.birth_date);
-    const caption = [pet.species, pet.breed, age].filter(Boolean).join(' · ');
-    const mood = computePetMood(petTasksAll, theme);
+    const age = formatPetAge(pet.birth_date, new Date(), language);
+    const speciesLabel = pet.species ? t(SPECIES_LABEL_KEY[pet.species] ?? 'petsSpeciesOther') : null;
+    const caption = [speciesLabel, pet.breed, age].filter(Boolean).join(' · ');
+    const mood = computePetMood(petTasksAll, theme, t, language);
 
     return (
       <ThemedView key={pet.id} type="backgroundElement" style={styles.petCard}>
@@ -666,7 +721,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
         <View style={styles.supplyRow}>
           <TextInput
             style={[styles.supplyInput, { color: theme.text, backgroundColor: theme.background }]}
-            placeholder={`Add to shopping list for ${pet.name}…`}
+            placeholder={t('petsSupplyPlaceholder', { name: pet.name })}
             placeholderTextColor={theme.textSecondary}
             value={supplyDrafts[pet.id] ?? ''}
             onChangeText={(text) => setSupplyDrafts((prev) => ({ ...prev, [pet.id]: text }))}
@@ -681,7 +736,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
               { backgroundColor: theme.accent, opacity: supplyDrafts[pet.id]?.trim() ? 1 : 0.5 },
             ]}>
             <ThemedText type="smallBold" themeColor="background">
-              🐾 Add
+              {t('petsSupplyAddButton')}
             </ThemedText>
           </Pressable>
         </View>
@@ -691,10 +746,10 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
         ) : (
           <ThemedText type="small" themeColor="textSecondary" style={styles.petEmptyText}>
             {petTasksAll.length === 0
-              ? `No care tasks yet for ${pet.name} — add one below.`
+              ? t('petsEmptyNoTasksYet', { name: pet.name })
               : showMineOnly
-                ? `No tasks assigned to you for ${pet.name}.`
-                : `${pet.name} is all caught up!`}
+                ? t('petsEmptyNoTasksAssigned', { name: pet.name })
+                : t('petsEmptyAllCaughtUp', { name: pet.name })}
           </ThemedText>
         )}
 
@@ -703,7 +758,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
         ) : (
           <Pressable onPress={() => openTaskComposer(pet.id)} style={styles.addTaskLink} hitSlop={8}>
             <ThemedText type="small" themeColor="accent">
-              + Add care task
+              {t('petsAddTaskLink')}
             </ThemedText>
           </Pressable>
         )}
@@ -717,10 +772,10 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
     <View style={styles.container}>
       <PetsPawBackground />
       <View style={styles.header}>
-        <BackButton label="Home" onPress={onBack} />
+        <BackButton label={t('home')} onPress={onBack} />
         {totalVisible > 0 && (
           <ThemedText type="small" themeColor="textSecondary">
-            {totalDone} of {totalVisible} done
+            {t('petsDoneCount', { done: totalDone, total: totalVisible })}
           </ThemedText>
         )}
       </View>
@@ -729,10 +784,10 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
         <ThemedView type="backgroundElement" style={styles.addCard}>
           {editingPetId && (
             <View style={styles.editingRow}>
-              <ThemedText type="smallBold">Edit pet</ThemedText>
+              <ThemedText type="smallBold">{t('petsEditPetHeader')}</ThemedText>
               <Pressable onPress={resetPetForm} hitSlop={8}>
                 <ThemedText type="small" themeColor="accent">
-                  Cancel
+                  {t('cancel')}
                 </ThemedText>
               </Pressable>
             </View>
@@ -753,7 +808,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
                   {editingPet.avatar_url && (
                     <Pressable onPress={() => handleRemoveAvatar(editingPet)} hitSlop={8}>
                       <ThemedText type="small" themeColor="accent">
-                        Remove photo
+                        {t('actionRemovePhoto')}
                       </ThemedText>
                     </Pressable>
                   )}
@@ -763,7 +818,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
 
           <TextInput
             style={[styles.input, { color: theme.text }]}
-            placeholder="Add a pet…"
+            placeholder={t('petsAddPetPlaceholder')}
             placeholderTextColor={theme.textSecondary}
             value={petName}
             onChangeText={setPetName}
@@ -776,17 +831,18 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
           {isPetComposerExpanded && (
             <>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
-                {SPECIES_OPTIONS.map((s) => (
+                {SPECIES_OPTIONS.map((opt) => (
                   <Pressable
-                    key={s}
-                    onPress={() => setPetSpecies((prev) => (prev === s ? null : s))}
+                    key={opt.value}
+                    onPressIn={petComposerBlur.onFocus}
+                    onPress={() => setPetSpecies((prev) => (prev === opt.value ? null : opt.value))}
                     style={[
                       styles.pill,
                       { backgroundColor: theme.backgroundSelected },
-                      petSpecies === s && { backgroundColor: theme.accent },
+                      petSpecies === opt.value && { backgroundColor: theme.accent },
                     ]}>
-                    <ThemedText type="small" themeColor={petSpecies === s ? 'background' : 'textSecondary'}>
-                      {s}
+                    <ThemedText type="small" themeColor={petSpecies === opt.value ? 'background' : 'textSecondary'}>
+                      {t(opt.labelKey)}
                     </ThemedText>
                   </Pressable>
                 ))}
@@ -794,7 +850,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
 
               <TextInput
                 style={[styles.input, { color: theme.text }]}
-                placeholder="Breed (optional)"
+                placeholder={t('petsBreedPlaceholder')}
                 placeholderTextColor={theme.textSecondary}
                 value={petBreed}
                 onChangeText={setPetBreed}
@@ -806,7 +862,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
 
               <TextInput
                 style={[styles.input, { color: theme.text }]}
-                placeholder="Age in years (optional)"
+                placeholder={t('ageYearsPlaceholder')}
                 placeholderTextColor={theme.textSecondary}
                 value={petAgeYears}
                 onChangeText={(text) => setPetAgeYears(text.replace(/[^0-9]/g, ''))}
@@ -818,7 +874,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
 
               <TextInput
                 style={[styles.input, styles.notesInput, { color: theme.text, backgroundColor: theme.backgroundSelected }]}
-                placeholder="Notes — allergies, vet info, feeding quirks… (optional)"
+                placeholder={t('petsNotesPlaceholder')}
                 placeholderTextColor={theme.textSecondary}
                 value={petNotes}
                 onChangeText={setPetNotes}
@@ -832,7 +888,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
                 disabled={!petName.trim() || petSubmitting}
                 onPress={handlePetSubmit}>
                 <ThemedText type="smallBold" themeColor="background">
-                  {editingPetId ? 'Save changes' : 'Add pet'}
+                  {editingPetId ? t('saveChanges') : t('petsAddPetButton')}
                 </ThemedText>
               </Pressable>
             </>
@@ -852,7 +908,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
                 (f === 'mine') === showMineOnly && { backgroundColor: theme.accent },
               ]}>
               <ThemedText type="small" themeColor={(f === 'mine') === showMineOnly ? 'background' : 'textSecondary'}>
-                {f === 'all' ? 'All tasks' : 'My tasks'}
+                {f === 'all' ? t('allFilter') : t('petsFilterMine')}
               </ThemedText>
             </Pressable>
           ))}
@@ -866,7 +922,7 @@ export function PetsSection({ onBack }: { onBack: () => void }) {
           <View style={styles.emptyState}>
             <PetsIcon color={theme.backgroundSelected} size={40} />
             <ThemedText themeColor="textSecondary" style={styles.emptyText}>
-              No pets yet — add one above to start tracking feeding, walks, vet visits, and more.
+              {t('petsEmptyStateMessage')}
             </ThemedText>
           </View>
         )}
@@ -883,7 +939,12 @@ const styles = StyleSheet.create({
   addCard: { borderRadius: Spacing.four, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, gap: Spacing.two },
   editingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   input: { fontSize: 16, paddingVertical: Spacing.one },
-  pillRow: { flexGrow: 0 },
+  // flexShrink: 1 + minWidth: 0 — see kids-section.tsx's identical
+  // pillRow comment for why both are needed (RN's flexShrink defaults to
+  // 0 for a plain ScrollView, and web's min-width:auto blocks shrinking
+  // even with flexShrink set) — without them a pill row wider than its
+  // card overflows the rounded edge and clips the last pill.
+  pillRow: { flexGrow: 0, flexShrink: 1, minWidth: 0 },
   pill: {
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.one,
@@ -903,7 +964,10 @@ const styles = StyleSheet.create({
   petsColumn: { gap: Spacing.three },
   petCard: { borderRadius: Spacing.four, padding: Spacing.three, gap: Spacing.three },
   petHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.three, justifyContent: 'space-between' },
-  petTitleWrapper: { flex: 1, gap: Spacing.half },
+  // minWidth: 0 — same web flexbox fix as pillRow above: without it, a
+  // long pet name/caption won't shrink to wrap and instead overflows
+  // past the card's edge.
+  petTitleWrapper: { flex: 1, minWidth: 0, gap: Spacing.half },
   petName: { fontWeight: '700' },
   avatarWrapper: { position: 'relative' },
   avatarEditRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
@@ -926,7 +990,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   checkboxSlot: { position: 'relative' },
-  taskTextWrapper: { flex: 1, gap: Spacing.half },
+  // minWidth: 0 — same web flexbox fix as pillRow above: without it, a
+  // long task title/caption won't shrink to wrap and instead overflows
+  // past the card's edge.
+  taskTextWrapper: { flex: 1, minWidth: 0, gap: Spacing.half },
   doneText: { textDecorationLine: 'line-through' },
   deleteIcon: { fontSize: 24, lineHeight: 24, paddingHorizontal: Spacing.one },
 });

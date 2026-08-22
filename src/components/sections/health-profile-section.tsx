@@ -6,14 +6,32 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useHealthProfile } from '@/hooks/use-health-profile';
+import { useTranslation, type TranslationKey } from '@/hooks/use-language';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
 import { ACTIVITY_LEVELS, computeBMR, computeMacroTargets, computeTDEE, GOALS } from '@/lib/tdee';
-import { parseDecimal, round1 } from '@/lib/number-format';
+import { parseDecimal, round1, sanitizeNumericInput } from '@/lib/number-format';
 import type { ActivityLevel, Goal, Sex } from '@/types/health-profile';
+
+// renderPillRow's `hint` field is declared but never rendered by this
+// component (dead code that predates this pass), so only label lookups
+// are needed here — translating an unrendered field would be pointless.
+const ACTIVITY_LABEL_KEY: Record<ActivityLevel, TranslationKey> = {
+  sedentary: 'healthActivitySedentary',
+  light: 'healthActivityLight',
+  moderate: 'healthActivityModerate',
+  active: 'healthActivityActive',
+  very_active: 'healthActivityVeryActive',
+};
+const GOAL_LABEL_KEY: Record<Goal, TranslationKey> = {
+  cut: 'healthGoalCut',
+  maintain: 'healthGoalMaintain',
+  bulk: 'healthGoalBulk',
+};
 
 export function HealthProfileSection({ onBack }: { onBack: () => void }) {
   const theme = useTheme();
+  const t = useTranslation();
   const { profile, loading, save } = useHealthProfile();
 
   const [age, setAge] = useState('');
@@ -58,7 +76,7 @@ export function HealthProfileSection({ onBack }: { onBack: () => void }) {
 
   function handleCalculate() {
     if (!canCalculate || !sex || !activityLevel || !goal) return;
-    const ageNum = Number(age);
+    const ageNum = parseDecimal(age);
     const weightNum = parseDecimal(weight);
     const heightNum = parseDecimal(height);
     const bmr = computeBMR(sex, weightNum, heightNum, ageNum);
@@ -85,15 +103,20 @@ export function HealthProfileSection({ onBack }: { onBack: () => void }) {
         fatTargetG: fatTarget.trim() ? Number(fatTarget) : null,
         carbTargetG: carbTarget.trim() ? Number(carbTarget) : null,
       });
-      showAlert('Saved', 'Your health profile has been updated.');
+      showAlert(t('healthAlertProfileSavedTitle'), t('healthAlertProfileSavedMessage'));
     } catch (err) {
-      showAlert("Couldn't save", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('healthAlertSaveFailedTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setSaving(false);
     }
   }
 
-  function renderPillRow<T extends string>(options: { value: T; label: string; hint?: string }[], selected: T | null, onSelect: (v: T) => void) {
+  function renderPillRow<T extends string>(
+    options: { value: T; label: string }[],
+    selected: T | null,
+    onSelect: (v: T) => void,
+    labelFor?: (value: T) => string
+  ) {
     return (
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
         {options.map((opt) => (
@@ -102,7 +125,7 @@ export function HealthProfileSection({ onBack }: { onBack: () => void }) {
             onPress={() => onSelect(opt.value)}
             style={[styles.pill, { backgroundColor: theme.backgroundSelected }, selected === opt.value && { backgroundColor: theme.accent }]}>
             <ThemedText type="small" themeColor={selected === opt.value ? 'background' : 'textSecondary'}>
-              {opt.label}
+              {labelFor ? labelFor(opt.value) : opt.label}
             </ThemedText>
           </Pressable>
         ))}
@@ -113,7 +136,7 @@ export function HealthProfileSection({ onBack }: { onBack: () => void }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <BackButton label="Health" onPress={onBack} />
+        <BackButton label={t('healthTitle')} onPress={onBack} />
       </View>
 
       {loading ? (
@@ -122,130 +145,115 @@ export function HealthProfileSection({ onBack }: { onBack: () => void }) {
         <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
           <ThemedView type="backgroundElement" style={styles.card}>
             <ThemedText type="smallBold" style={styles.sectionHeader}>
-              TDEE CALCULATOR
+              {t('healthTdeeCalculatorHeader')}
             </ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              Fill these in and tap Calculate for suggested daily targets — every target below stays fully editable afterward.
+              {t('healthTdeeCalculatorHint')}
             </ThemedText>
 
             <TextInput
               style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
-              placeholder="Age (years)"
+              placeholder={t('healthPlaceholderAge')}
               placeholderTextColor={theme.textSecondary}
               keyboardType="number-pad"
               value={age}
-              onChangeText={setAge}
+              onChangeText={(v) => setAge(sanitizeNumericInput(v))}
             />
             <TextInput
               style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
-              placeholder="Weight (kg)"
+              placeholder={t('healthPlaceholderWeight')}
               placeholderTextColor={theme.textSecondary}
               keyboardType="decimal-pad"
               value={weight}
-              onChangeText={setWeight}
+              onChangeText={(v) => setWeight(sanitizeNumericInput(v))}
             />
             <TextInput
               style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
-              placeholder="Height (cm)"
+              placeholder={t('healthPlaceholderHeight')}
               placeholderTextColor={theme.textSecondary}
               keyboardType="decimal-pad"
               value={height}
-              onChangeText={setHeight}
+              onChangeText={(v) => setHeight(sanitizeNumericInput(v))}
             />
 
             <ThemedText type="small" themeColor="textSecondary">
-              Sex
+              {t('healthSexLabel')}
             </ThemedText>
             {renderPillRow(
               [
-                { value: 'male', label: 'Male' },
-                { value: 'female', label: 'Female' },
+                { value: 'male', label: t('healthSexMale') },
+                { value: 'female', label: t('healthSexFemale') },
               ],
               sex,
               setSex
             )}
 
             <ThemedText type="small" themeColor="textSecondary">
-              Activity level
+              {t('healthActivityLevelLabel')}
             </ThemedText>
-            {renderPillRow(ACTIVITY_LEVELS, activityLevel, setActivityLevel)}
+            {renderPillRow(ACTIVITY_LEVELS, activityLevel, setActivityLevel, (v) => t(ACTIVITY_LABEL_KEY[v]))}
 
             <ThemedText type="small" themeColor="textSecondary">
-              Goal
+              {t('healthGoalLabel')}
             </ThemedText>
-            {renderPillRow(GOALS, goal, setGoal)}
+            {renderPillRow(GOALS, goal, setGoal, (v) => t(GOAL_LABEL_KEY[v]))}
 
             <Pressable
               style={[styles.addButton, { backgroundColor: theme.accent, opacity: canCalculate ? 1 : 0.5 }]}
               disabled={!canCalculate}
               onPress={handleCalculate}>
               <ThemedText type="smallBold" themeColor="background">
-                Calculate
+                {t('healthCalculateButton')}
               </ThemedText>
             </Pressable>
           </ThemedView>
 
           <ThemedView type="backgroundElement" style={styles.card}>
             <ThemedText type="smallBold" style={styles.sectionHeader}>
-              DAILY TARGETS
+              {t('healthDailyTargetsHeader')}
             </ThemedText>
+            {/* Read-only display, not TextInputs — these are only ever
+                derived from Calculate above, never hand-typed. A stray
+                manual edit here used to be able to drift silently out of
+                sync with what Calculate would actually produce from the
+                same inputs, with no way to tell the two apart later. */}
             <View style={styles.targetRow}>
               <ThemedText type="small" style={styles.targetLabel}>
-                Calories
+                {t('healthMacroCalories')}
               </ThemedText>
-              <TextInput
-                style={[styles.input, styles.targetInput, { color: theme.text, backgroundColor: theme.background }]}
-                keyboardType="number-pad"
-                value={calorieTarget}
-                onChangeText={setCalorieTarget}
-                placeholder="kcal"
-                placeholderTextColor={theme.textSecondary}
-              />
+              <ThemedText type="small" style={styles.targetValue}>
+                {calorieTarget || '—'} {t('healthUnitKcal')}
+              </ThemedText>
             </View>
             <View style={styles.targetRow}>
               <ThemedText type="small" style={styles.targetLabel}>
-                Protein
+                {t('healthMacroProtein')}
               </ThemedText>
-              <TextInput
-                style={[styles.input, styles.targetInput, { color: theme.text, backgroundColor: theme.background }]}
-                keyboardType="number-pad"
-                value={proteinTarget}
-                onChangeText={setProteinTarget}
-                placeholder="g"
-                placeholderTextColor={theme.textSecondary}
-              />
+              <ThemedText type="small" style={styles.targetValue}>
+                {proteinTarget || '—'} {t('healthUnitGrams')}
+              </ThemedText>
             </View>
             <View style={styles.targetRow}>
               <ThemedText type="small" style={styles.targetLabel}>
-                Fat
+                {t('healthMacroFat')}
               </ThemedText>
-              <TextInput
-                style={[styles.input, styles.targetInput, { color: theme.text, backgroundColor: theme.background }]}
-                keyboardType="number-pad"
-                value={fatTarget}
-                onChangeText={setFatTarget}
-                placeholder="g"
-                placeholderTextColor={theme.textSecondary}
-              />
+              <ThemedText type="small" style={styles.targetValue}>
+                {fatTarget || '—'} {t('healthUnitGrams')}
+              </ThemedText>
             </View>
             <View style={styles.targetRow}>
               <ThemedText type="small" style={styles.targetLabel}>
-                Carbs
+                {t('healthMacroCarbs')}
               </ThemedText>
-              <TextInput
-                style={[styles.input, styles.targetInput, { color: theme.text, backgroundColor: theme.background }]}
-                keyboardType="number-pad"
-                value={carbTarget}
-                onChangeText={setCarbTarget}
-                placeholder="g"
-                placeholderTextColor={theme.textSecondary}
-              />
+              <ThemedText type="small" style={styles.targetValue}>
+                {carbTarget || '—'} {t('healthUnitGrams')}
+              </ThemedText>
             </View>
 
             <Pressable style={[styles.addButton, { backgroundColor: theme.accent, opacity: saving ? 0.6 : 1 }]} disabled={saving} onPress={handleSave}>
               {saving ? <ActivityIndicator color={theme.background} /> : (
                 <ThemedText type="smallBold" themeColor="background">
-                  Save
+                  {t('save')}
                 </ThemedText>
               )}
             </Pressable>
@@ -265,13 +273,15 @@ const styles = StyleSheet.create({
   card: { borderRadius: Spacing.four, padding: Spacing.three, gap: Spacing.two },
   sectionHeader: { letterSpacing: 0.5 },
   input: { fontSize: 16, paddingVertical: Spacing.two, paddingHorizontal: Spacing.two, borderRadius: Spacing.two },
-  pillRow: { flexGrow: 0 },
+  // flexShrink: 1 + minWidth: 0 — see kids-section.tsx's identical
+  // pillRow comment (RN's flexShrink defaults to 0 for a plain
+  // ScrollView, and web's min-width:auto blocks shrinking even with
+  // flexShrink set) — without both, a pill row wider than its card
+  // overflows the rounded edge and clips the last pill.
+  pillRow: { flexGrow: 0, flexShrink: 1, minWidth: 0 },
   pill: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.one, borderRadius: 999, marginRight: Spacing.two },
   addButton: { alignItems: 'center', paddingVertical: Spacing.two, borderRadius: Spacing.two, marginTop: Spacing.one },
   targetRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   targetLabel: { flex: 1 },
-  // minWidth: 0 overrides web's default min-width:auto on flex items —
-  // without it the rendered <input>'s intrinsic size wins over
-  // flex-grow and the row overflows instead of splitting evenly.
-  targetInput: { flex: 1, minWidth: 0 },
+  targetValue: { flex: 1, textAlign: 'right' },
 });

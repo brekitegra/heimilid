@@ -9,29 +9,51 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { localIsoDateInDays } from '@/lib/date-format';
 import { formatDueDate } from '@/lib/chore-format';
-import { parseDecimal, round1 } from '@/lib/number-format';
+import { parseDecimal, round1, sanitizeNumericInput } from '@/lib/number-format';
 import { formatWorkoutLastDone, formatWorkoutStreak } from '@/lib/workout-format';
 import { isWorkoutDoneNow, useWorkouts } from '@/hooks/use-workouts';
+import { useLanguage, useTranslation, type Language, type TranslationKey } from '@/hooks/use-language';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
+import { isSameName } from '@/lib/duplicate-check';
 import type { Workout, WorkoutExercise, WorkoutInput } from '@/types/workout';
 
-const WEEKDAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-const EVENT_DATE_OPTIONS: { label: string; value: string }[] = [
-  { label: 'Today', value: localIsoDateInDays(0) },
-  { label: 'Tomorrow', value: localIsoDateInDays(1) },
-  { label: 'In 3 days', value: localIsoDateInDays(3) },
-  { label: 'In a week', value: localIsoDateInDays(7) },
+const WEEKDAY_LABEL_KEYS: TranslationKey[] = [
+  'weekdaySunday',
+  'weekdayMonday',
+  'weekdayTuesday',
+  'weekdayWednesday',
+  'weekdayThursday',
+  'weekdayFriday',
+  'weekdaySaturday',
+];
+const WEEKDAY_SHORT_KEYS: TranslationKey[] = [
+  'weekdayShortSun',
+  'weekdayShortMon',
+  'weekdayShortTue',
+  'weekdayShortWed',
+  'weekdayShortThu',
+  'weekdayShortFri',
+  'weekdayShortSat',
 ];
 
-function formatSetsRepsWeight(sets: number | null, reps: number | null, weight: number | null): string | null {
+const EVENT_DATE_OPTIONS: { labelKey: TranslationKey; value: string }[] = [
+  { labelKey: 'eventDateToday', value: localIsoDateInDays(0) },
+  { labelKey: 'eventDateTomorrow', value: localIsoDateInDays(1) },
+  { labelKey: 'eventDateIn3Days', value: localIsoDateInDays(3) },
+  { labelKey: 'eventDateInAWeek', value: localIsoDateInDays(7) },
+];
+
+// Module-level, no hook access (see chore-format.ts's doc comment for
+// why *-format.ts-style functions take `language` directly) — this one
+// lives here rather than in workout-format.ts since it formats a
+// composer/row caption specific to this screen, not a Workout row itself.
+function formatSetsRepsWeight(sets: number | null, reps: number | null, weight: number | null, language: Language = 'en'): string | null {
   if (!sets && !reps && !weight) return null;
   const parts: string[] = [];
   if (sets && reps) parts.push(`${sets}×${reps}`);
-  else if (sets) parts.push(`${sets} sets`);
-  else if (reps) parts.push(`${reps} reps`);
+  else if (sets) parts.push(language === 'is' ? `${sets} sett` : `${sets} sets`);
+  else if (reps) parts.push(language === 'is' ? `${reps} endurtekningar` : `${reps} reps`);
   // weight is a numeric(x,2) column — comes back as a string with trailing
   // zeros (e.g. "60.00"), so clean it up before displaying.
   if (weight) parts.push(`${round1(Number(weight))}kg`);
@@ -40,6 +62,8 @@ function formatSetsRepsWeight(sets: number | null, reps: number | null, weight: 
 
 export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
   const theme = useTheme();
+  const t = useTranslation();
+  const { language } = useLanguage();
   const {
     workouts,
     exercises,
@@ -110,6 +134,11 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
 
   async function handleWorkoutSubmit() {
     if (!workoutTitle.trim()) return;
+    const duplicate = workouts.find((w) => w.id !== editingWorkoutId && !isWorkoutDoneNow(w) && isSameName(w.title, workoutTitle));
+    if (duplicate) {
+      showAlert(t('healthAlertDuplicateWorkoutTitle'), t('healthAlertDuplicateWorkoutMessage', { title: duplicate.title }));
+      return;
+    }
     const input: WorkoutInput = {
       title: workoutTitle,
       notes: workoutNotes.trim() || null,
@@ -127,21 +156,26 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
       }
       resetWorkoutForm();
     } catch (err) {
-      showAlert(editingWorkoutId ? "Couldn't save changes" : "Couldn't add workout", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(
+        editingWorkoutId ? t('healthAlertSaveWorkoutChangesFailedTitle') : t('healthAlertAddWorkoutFailedTitle'),
+        err instanceof Error ? err.message : t('genericErrorMessage')
+      );
     } finally {
       setWorkoutSubmitting(false);
     }
   }
 
   function confirmDeleteWorkout(workout: Workout) {
-    showAlert('Delete workout', `Remove "${workout.title}" and its exercises?`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('healthAlertDeleteWorkoutTitle'), t('healthAlertDeleteWorkoutMessage', { title: workout.title }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('delete'),
         style: 'destructive',
         onPress: () => {
           if (editingWorkoutId === workout.id) resetWorkoutForm();
-          deleteWorkout(workout).catch((err) => showAlert("Couldn't delete workout", err instanceof Error ? err.message : 'Something went wrong'));
+          deleteWorkout(workout).catch((err) =>
+            showAlert(t('healthAlertDeleteWorkoutFailedTitle'), err instanceof Error ? err.message : t('genericErrorMessage'))
+          );
         },
       },
     ]);
@@ -151,7 +185,7 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
     try {
       await toggleWorkout(workout);
     } catch (err) {
-      showAlert("Couldn't update workout", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('healthAlertUpdateWorkoutFailedTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
@@ -210,21 +244,24 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
       }
       resetExerciseForm();
     } catch (err) {
-      showAlert(editingExerciseId ? "Couldn't save changes" : "Couldn't add exercise", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(
+        editingExerciseId ? t('healthAlertSaveExerciseChangesFailedTitle') : t('healthAlertAddExerciseFailedTitle'),
+        err instanceof Error ? err.message : t('genericErrorMessage')
+      );
     } finally {
       setExerciseSubmitting(false);
     }
   }
 
   function confirmDeleteExercise(exercise: WorkoutExercise) {
-    showAlert('Delete exercise', `Remove "${exercise.name}"?`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('healthAlertDeleteExerciseTitle'), t('healthAlertDeleteExerciseMessage', { name: exercise.name }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('delete'),
         style: 'destructive',
         onPress: () => {
           if (editingExerciseId === exercise.id) resetExerciseForm();
-          deleteExercise(exercise).catch(() => showAlert("Couldn't delete exercise"));
+          deleteExercise(exercise).catch(() => showAlert(t('healthAlertDeleteExerciseFailedTitle')));
         },
       },
     ]);
@@ -233,23 +270,23 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
   function buildWorkoutMeta(workout: Workout): string[] {
     const parts: string[] = [];
     if (workout.is_recurring) {
-      parts.push(workout.day_of_week !== null ? WEEKDAY_SHORT[workout.day_of_week] : 'Weekly');
-      const streak = formatWorkoutStreak(workout);
+      parts.push(workout.day_of_week !== null ? t(WEEKDAY_SHORT_KEYS[workout.day_of_week]) : t('frequencyWeekly'));
+      const streak = formatWorkoutStreak(workout, language);
       if (streak) parts.push(streak);
       if (!isWorkoutDoneNow(workout)) {
-        const lastDone = formatWorkoutLastDone(workout);
+        const lastDone = formatWorkoutLastDone(workout, new Date(), language);
         if (lastDone) parts.push(lastDone);
       }
     } else if (workout.event_date && !workout.is_done) {
-      const due = formatDueDate(workout.event_date);
+      const due = formatDueDate(workout.event_date, new Date(), language);
       if (due) parts.push(due.text);
     }
     return parts;
   }
 
   function renderExerciseRow(exercise: WorkoutExercise) {
-    const target = formatSetsRepsWeight(exercise.target_sets, exercise.target_reps, exercise.target_weight);
-    const last = formatSetsRepsWeight(exercise.last_actual_sets, exercise.last_actual_reps, exercise.last_actual_weight);
+    const target = formatSetsRepsWeight(exercise.target_sets, exercise.target_reps, exercise.target_weight, language);
+    const last = formatSetsRepsWeight(exercise.last_actual_sets, exercise.last_actual_reps, exercise.last_actual_weight, language);
     return (
       <View key={exercise.id} style={styles.exerciseRow}>
         <Pressable style={styles.exerciseTextWrapper} onPress={() => startEditExercise(exercise)}>
@@ -260,8 +297,8 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
             {exercise.name}
           </ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            {target ? `Target: ${target}` : 'No target set'}
-            {last ? ` · Last: ${last}` : ''}
+            {target ? t('healthExerciseTargetTemplate', { target }) : t('healthExerciseNoTargetSet')}
+            {last ? t('healthExerciseLastTemplate', { last }) : ''}
           </ThemedText>
         </Pressable>
         <Pressable onPress={() => confirmDeleteExercise(exercise)} hitSlop={8}>
@@ -278,80 +315,80 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
       <View style={styles.exerciseComposer}>
         <View style={styles.editingRow}>
           <ThemedText type="small" themeColor="textSecondary">
-            {editingExerciseId ? 'Edit exercise' : 'New exercise'}
+            {editingExerciseId ? t('healthEditExerciseTitle') : t('healthNewExerciseTitle')}
           </ThemedText>
           <Pressable onPress={resetExerciseForm} hitSlop={8}>
             <ThemedText type="small" themeColor="accent">
-              Cancel
+              {t('cancel')}
             </ThemedText>
           </Pressable>
         </View>
         <TextInput
           style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
-          placeholder="Exercise name"
+          placeholder={t('healthPlaceholderExerciseName')}
           placeholderTextColor={theme.textSecondary}
           value={exerciseName}
           onChangeText={setExerciseName}
         />
         <ThemedText type="small" themeColor="textSecondary">
-          Target
+          {t('healthTargetLabel')}
         </ThemedText>
         <View style={styles.exerciseInputsRow}>
           <TextInput
             style={[styles.input, styles.exerciseInput, { color: theme.text, backgroundColor: theme.background }]}
-            placeholder="Sets"
+            placeholder={t('healthPlaceholderSets')}
             placeholderTextColor={theme.textSecondary}
             keyboardType="number-pad"
             value={targetSets}
-            onChangeText={setTargetSets}
+            onChangeText={(v) => setTargetSets(sanitizeNumericInput(v))}
           />
           <TextInput
             style={[styles.input, styles.exerciseInput, { color: theme.text, backgroundColor: theme.background }]}
-            placeholder="Reps"
+            placeholder={t('healthPlaceholderReps')}
             placeholderTextColor={theme.textSecondary}
             keyboardType="number-pad"
             value={targetReps}
-            onChangeText={setTargetReps}
+            onChangeText={(v) => setTargetReps(sanitizeNumericInput(v))}
           />
           <TextInput
             style={[styles.input, styles.exerciseInput, { color: theme.text, backgroundColor: theme.background }]}
-            placeholder="kg"
+            placeholder={t('healthPlaceholderKg')}
             placeholderTextColor={theme.textSecondary}
             keyboardType="decimal-pad"
             value={targetWeight}
-            onChangeText={setTargetWeight}
+            onChangeText={(v) => setTargetWeight(sanitizeNumericInput(v))}
           />
         </View>
 
         {editingExerciseId && (
           <>
             <ThemedText type="small" themeColor="textSecondary">
-              Last actual
+              {t('healthLastActualLabel')}
             </ThemedText>
             <View style={styles.exerciseInputsRow}>
               <TextInput
                 style={[styles.input, styles.exerciseInput, { color: theme.text, backgroundColor: theme.background }]}
-                placeholder="Sets"
+                placeholder={t('healthPlaceholderSets')}
                 placeholderTextColor={theme.textSecondary}
                 keyboardType="number-pad"
                 value={actualSets}
-                onChangeText={setActualSets}
+                onChangeText={(v) => setActualSets(sanitizeNumericInput(v))}
               />
               <TextInput
                 style={[styles.input, styles.exerciseInput, { color: theme.text, backgroundColor: theme.background }]}
-                placeholder="Reps"
+                placeholder={t('healthPlaceholderReps')}
                 placeholderTextColor={theme.textSecondary}
                 keyboardType="number-pad"
                 value={actualReps}
-                onChangeText={setActualReps}
+                onChangeText={(v) => setActualReps(sanitizeNumericInput(v))}
               />
               <TextInput
                 style={[styles.input, styles.exerciseInput, { color: theme.text, backgroundColor: theme.background }]}
-                placeholder="kg"
+                placeholder={t('healthPlaceholderKg')}
                 placeholderTextColor={theme.textSecondary}
                 keyboardType="decimal-pad"
                 value={actualWeight}
-                onChangeText={setActualWeight}
+                onChangeText={(v) => setActualWeight(sanitizeNumericInput(v))}
               />
             </View>
           </>
@@ -362,7 +399,7 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
           disabled={!exerciseName.trim() || exerciseSubmitting}
           onPress={handleExerciseSubmit}>
           <ThemedText type="smallBold" themeColor="background">
-            {editingExerciseId ? 'Save changes' : 'Add exercise'}
+            {editingExerciseId ? t('saveChanges') : t('healthAddExerciseButton')}
           </ThemedText>
         </Pressable>
       </View>
@@ -405,7 +442,7 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
           ) : (
             <Pressable onPress={() => openExerciseComposer(workout.id)} style={styles.addLink} hitSlop={8}>
               <ThemedText type="small" themeColor="accent">
-                + Add exercise
+                {t('healthAddExerciseLink')}
               </ThemedText>
             </Pressable>
           )}
@@ -417,23 +454,23 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <BackButton label="Health" onPress={onBack} />
+        <BackButton label={t('healthTitle')} onPress={onBack} />
       </View>
 
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
         {composerOpen ? (
           <ThemedView type="backgroundElement" style={styles.addCard}>
             <View style={styles.editingRow}>
-              <ThemedText type="smallBold">{editingWorkoutId ? 'Edit workout' : 'New workout'}</ThemedText>
+              <ThemedText type="smallBold">{editingWorkoutId ? t('healthEditWorkoutTitle') : t('healthNewWorkoutTitle')}</ThemedText>
               <Pressable onPress={resetWorkoutForm} hitSlop={8}>
                 <ThemedText type="small" themeColor="accent">
-                  Cancel
+                  {t('cancel')}
                 </ThemedText>
               </Pressable>
             </View>
             <TextInput
               style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
-              placeholder="e.g. Push Day, Leg Day…"
+              placeholder={t('healthPlaceholderWorkoutTitle')}
               placeholderTextColor={theme.textSecondary}
               value={workoutTitle}
               onChangeText={setWorkoutTitle}
@@ -450,7 +487,7 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
                     (mode === 'recurring') === workoutIsRecurring && { backgroundColor: theme.accent },
                   ]}>
                   <ThemedText type="small" themeColor={(mode === 'recurring') === workoutIsRecurring ? 'background' : 'textSecondary'}>
-                    {mode === 'recurring' ? 'Recurring weekly' : 'One-time'}
+                    {mode === 'recurring' ? t('recurringWeekly') : t('healthOneTimeLabel')}
                   </ThemedText>
                 </Pressable>
               ))}
@@ -458,13 +495,13 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
 
             {workoutIsRecurring ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
-                {WEEKDAY_LABELS.map((label, i) => (
+                {WEEKDAY_LABEL_KEYS.map((labelKey, i) => (
                   <Pressable
-                    key={label}
+                    key={labelKey}
                     onPress={() => setWorkoutDayOfWeek(i)}
                     style={[styles.pill, { backgroundColor: theme.backgroundSelected }, workoutDayOfWeek === i && { backgroundColor: theme.accent }]}>
                     <ThemedText type="small" themeColor={workoutDayOfWeek === i ? 'background' : 'textSecondary'}>
-                      {WEEKDAY_SHORT[i]}
+                      {t(WEEKDAY_SHORT_KEYS[i])}
                     </ThemedText>
                   </Pressable>
                 ))}
@@ -473,11 +510,11 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
                 {EVENT_DATE_OPTIONS.map((opt) => (
                   <Pressable
-                    key={opt.label}
+                    key={opt.labelKey}
                     onPress={() => setWorkoutEventDate(opt.value)}
                     style={[styles.pill, { backgroundColor: theme.backgroundSelected }, workoutEventDate === opt.value && { backgroundColor: theme.accent }]}>
                     <ThemedText type="small" themeColor={workoutEventDate === opt.value ? 'background' : 'textSecondary'}>
-                      {opt.label}
+                      {t(opt.labelKey)}
                     </ThemedText>
                   </Pressable>
                 ))}
@@ -486,7 +523,7 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
 
             <TextInput
               style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
-              placeholder="Notes (optional)"
+              placeholder={t('healthPlaceholderNotesOptional')}
               placeholderTextColor={theme.textSecondary}
               value={workoutNotes}
               onChangeText={setWorkoutNotes}
@@ -497,7 +534,7 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
               disabled={!workoutTitle.trim() || workoutSubmitting}
               onPress={handleWorkoutSubmit}>
               <ThemedText type="smallBold" themeColor="background">
-                {editingWorkoutId ? 'Save changes' : 'Add workout'}
+                {editingWorkoutId ? t('saveChanges') : t('healthAddWorkoutButton')}
               </ThemedText>
             </Pressable>
           </ThemedView>
@@ -510,7 +547,7 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
             style={styles.addLink}
             hitSlop={8}>
             <ThemedText type="smallBold" themeColor="accent">
-              + Add workout
+              {t('healthAddWorkoutLink')}
             </ThemedText>
           </Pressable>
         )}
@@ -519,7 +556,7 @@ export function HealthTrainingSection({ onBack }: { onBack: () => void }) {
 
         {!loading && visibleWorkouts.length === 0 && (
           <ThemedText type="small" themeColor="textSecondary" style={styles.emptyText}>
-            No workouts yet — add one above to start planning your training.
+            {t('healthTrainingEmptyState')}
           </ThemedText>
         )}
 
@@ -537,7 +574,12 @@ const styles = StyleSheet.create({
   addCard: { borderRadius: Spacing.four, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, gap: Spacing.two },
   editingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   input: { fontSize: 16, paddingVertical: Spacing.two, paddingHorizontal: Spacing.two, borderRadius: Spacing.two },
-  pillRow: { flexGrow: 0 },
+  // flexShrink: 1 + minWidth: 0 — see kids-section.tsx's identical
+  // pillRow comment (RN's flexShrink defaults to 0 for a plain
+  // ScrollView, and web's min-width:auto blocks shrinking even with
+  // flexShrink set) — without both, a pill row wider than its card
+  // overflows the rounded edge and clips the last pill.
+  pillRow: { flexGrow: 0, flexShrink: 1, minWidth: 0 },
   pill: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.one, borderRadius: 999, marginRight: Spacing.two },
   addButton: { alignItems: 'center', paddingVertical: Spacing.two, borderRadius: Spacing.two, marginTop: Spacing.one },
   addLink: { paddingVertical: Spacing.one },
@@ -546,12 +588,16 @@ const styles = StyleSheet.create({
   workoutsColumn: { gap: Spacing.three },
   workoutCard: { borderRadius: Spacing.four, padding: Spacing.three, gap: Spacing.two },
   workoutHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
-  workoutTitleWrapper: { flex: 1, gap: Spacing.half },
+  // minWidth: 0 — same web flexbox fix as pillRow above: without it, a
+  // long workout title won't shrink to wrap and instead overflows past
+  // the card's edge.
+  workoutTitleWrapper: { flex: 1, minWidth: 0, gap: Spacing.half },
   doneText: { textDecorationLine: 'line-through' },
   deleteIcon: { fontSize: 24, lineHeight: 24, paddingHorizontal: Spacing.one },
   exerciseList: { gap: Spacing.two, marginLeft: Spacing.five, marginTop: Spacing.one, padding: Spacing.two, borderRadius: Spacing.three },
   exerciseRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  exerciseTextWrapper: { flex: 1, gap: Spacing.half },
+  // minWidth: 0 — same web flexbox fix as pillRow above.
+  exerciseTextWrapper: { flex: 1, minWidth: 0, gap: Spacing.half },
   exerciseComposer: { gap: Spacing.two, paddingLeft: Spacing.five, marginTop: Spacing.one },
   exerciseInputsRow: { flexDirection: 'row', gap: Spacing.two },
   exerciseInput: { flex: 1, minWidth: 0 },

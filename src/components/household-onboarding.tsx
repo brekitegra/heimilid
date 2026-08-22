@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LanguageToggle } from '@/components/language-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useHousehold } from '@/hooks/use-household';
+import { useTranslation } from '@/hooks/use-language';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
 
@@ -13,6 +15,7 @@ type Mode = 'create' | 'join';
 
 export function HouseholdOnboarding() {
   const theme = useTheme();
+  const t = useTranslation();
   const { createHousehold, joinHousehold } = useHousehold();
   const [mode, setMode] = useState<Mode>('create');
   const [name, setName] = useState('');
@@ -21,11 +24,11 @@ export function HouseholdOnboarding() {
 
   async function handleSubmit() {
     if (mode === 'create' && !name.trim()) {
-      showAlert('Give your household a name');
+      showAlert(t('householdOnboardingNameRequired'));
       return;
     }
     if (mode === 'join' && !code.trim()) {
-      showAlert('Enter an invite code');
+      showAlert(t('householdOnboardingCodeRequired'));
       return;
     }
 
@@ -38,8 +41,8 @@ export function HouseholdOnboarding() {
       }
     } catch (err) {
       showAlert(
-        mode === 'create' ? "Couldn't create household" : "Couldn't join household",
-        err instanceof Error ? err.message : 'Something went wrong'
+        mode === 'create' ? t('householdOnboardingCreateError') : t('householdOnboardingJoinError'),
+        err instanceof Error ? err.message : t('genericErrorMessage')
       );
     } finally {
       setSubmitting(false);
@@ -48,35 +51,36 @@ export function HouseholdOnboarding() {
 
   return (
     <ThemedView style={styles.container}>
+      <LanguageToggle />
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
           style={[styles.form, { borderColor: theme.backgroundSelected }]}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}>
           <ThemedText type="title" style={styles.title}>
-            Heimilið
+            {t('householdOnboardingTitle')}
           </ThemedText>
           <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-            Create a household to get started, or join one with an invite code.
+            {t('householdOnboardingSubtitle')}
           </ThemedText>
 
           <ThemedView type="backgroundElement" style={styles.tabs}>
             <Pressable
               style={[styles.tab, mode === 'create' && { backgroundColor: theme.backgroundSelected }]}
               onPress={() => setMode('create')}>
-              <ThemedText type="smallBold">Create</ThemedText>
+              <ThemedText type="smallBold">{t('householdOnboardingCreateTab')}</ThemedText>
             </Pressable>
             <Pressable
               style={[styles.tab, mode === 'join' && { backgroundColor: theme.backgroundSelected }]}
               onPress={() => setMode('join')}>
-              <ThemedText type="smallBold">Join</ThemedText>
+              <ThemedText type="smallBold">{t('householdOnboardingJoinTab')}</ThemedText>
             </Pressable>
           </ThemedView>
 
           {mode === 'create' ? (
             <TextInput
               style={[styles.input, { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text }]}
-              placeholder="e.g. Gylfason family"
+              placeholder={t('householdOnboardingNamePlaceholder')}
               placeholderTextColor={theme.textSecondary}
               value={name}
               onChangeText={setName}
@@ -84,7 +88,7 @@ export function HouseholdOnboarding() {
           ) : (
             <TextInput
               style={[styles.input, { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text }]}
-              placeholder="Invite code"
+              placeholder={t('householdOnboardingCodePlaceholder')}
               placeholderTextColor={theme.textSecondary}
               autoCapitalize="characters"
               value={code}
@@ -100,7 +104,7 @@ export function HouseholdOnboarding() {
               <ActivityIndicator color={theme.background} />
             ) : (
               <ThemedText type="smallBold" themeColor="background">
-                {mode === 'create' ? 'Create household' : 'Join household'}
+                {mode === 'create' ? t('householdOnboardingCreateButton') : t('householdOnboardingJoinButton')}
               </ThemedText>
             )}
           </Pressable>

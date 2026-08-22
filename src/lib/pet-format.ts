@@ -1,3 +1,5 @@
+import type { Language } from '@/hooks/use-language';
+
 const SPECIES_EMOJI: Record<string, string> = {
   Dog: '🐕',
   Cat: '🐈',
@@ -19,8 +21,13 @@ function startOfDay(date: Date): Date {
 }
 
 /** "3 years old" / "8 months old" / "Newborn" from a birth date. Returns
- * null if there's no birth date set. */
-export function formatPetAge(birthDate: string | null, now = new Date()): string | null {
+ * null if there's no birth date set. Plain function with no hook access
+ * (see chore-format.ts's doc comment), so it takes `language` directly.
+ * The Icelandic branch deliberately drops "gamall/gömul/gamalt" (the
+ * gendered adjective for "old") since pets have no gender field to agree
+ * with — "3 ára"/"8 mánaða" alone is standard, natural Icelandic for
+ * stating an age (the same way a person's bio says "32 ára"). */
+export function formatPetAge(birthDate: string | null, now = new Date(), language: Language = 'en'): string | null {
   if (!birthDate) return null;
   const birth = startOfDay(new Date(`${birthDate}T00:00:00`));
   if (Number.isNaN(birth.getTime())) return null;
@@ -29,6 +36,11 @@ export function formatPetAge(birthDate: string | null, now = new Date()): string
   if (now.getDate() < birth.getDate()) months -= 1;
   months = Math.max(0, months);
 
+  if (language === 'is') {
+    if (months < 1) return 'Nýfætt';
+    if (months < 12) return `${months} mánaða`;
+    return `${Math.floor(months / 12)} ára`;
+  }
   if (months < 1) return 'Newborn';
   if (months < 12) return `${months} month${months === 1 ? '' : 's'} old`;
   const years = Math.floor(months / 12);

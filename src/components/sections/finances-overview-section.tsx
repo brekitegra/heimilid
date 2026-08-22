@@ -7,6 +7,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useBills } from '@/hooks/use-bills';
+import { useLanguage, useTranslation } from '@/hooks/use-language';
 import { useIncome } from '@/hooks/use-income';
 import { useLoans } from '@/hooks/use-loans';
 import { useSavings } from '@/hooks/use-savings';
@@ -36,6 +37,8 @@ function LegendDot({ color, label }: { color: string; label: string }) {
  * mixing it in would imply a reconciliation this app can't actually back
  * up). */
 export function FinancesOverviewSection({ onBack }: { onBack: () => void }) {
+  const t = useTranslation();
+  const { language } = useLanguage();
   const theme = useTheme();
   const { bills, loading: billsLoading } = useBills();
   const { loans, loading: loansLoading } = useLoans();
@@ -87,7 +90,7 @@ export function FinancesOverviewSection({ onBack }: { onBack: () => void }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <BackButton label="Finances" onPress={onBack} />
+        <BackButton label={t('financesTitle')} onPress={onBack} />
       </View>
 
       {loading ? (
@@ -97,7 +100,7 @@ export function FinancesOverviewSection({ onBack }: { onBack: () => void }) {
           {hasIncome && (
             <ThemedView type="backgroundElement" style={styles.heroCard}>
               <ThemedText type="small" themeColor="textSecondary" style={styles.heroLabel}>
-                LEFTOVER AFTER EXPENSES
+                {t('financesOverviewLeftoverLabel')}
               </ThemedText>
               <ThemedText type="title" style={[styles.heroValue, leftover < 0 && { color: OVER_BUDGET_COLOR }]}>
                 {formatCurrency(leftover)}
@@ -114,17 +117,19 @@ export function FinancesOverviewSection({ onBack }: { onBack: () => void }) {
                 }
               />
               <View style={styles.legendRow}>
-                <LegendDot color={theme.textSecondary} label={`Expenses ${formatCurrency(monthlyBillsOutflow)}`} />
-                <LegendDot color={theme.accent} label={`Loans ${formatCurrency(monthlyLoansOutflow)}`} />
+                <LegendDot color={theme.textSecondary} label={t('financesOverviewLegendExpenses', { amount: formatCurrency(monthlyBillsOutflow) })} />
+                <LegendDot color={theme.accent} label={t('financesOverviewLegendLoans', { amount: formatCurrency(monthlyLoansOutflow) })} />
               </View>
               {leftover >= 0 ? (
                 <ThemedText type="small" themeColor="textSecondary">
-                  {formatCurrency(householdIncome)}/mo income, {formatCurrency(monthlyBillsOutflow + monthlyLoansOutflow)}/mo committed — this is what
-                  you could realistically put toward a loan as an extra payment.
+                  {t('financesOverviewIncomeSummary', {
+                    income: formatCurrency(householdIncome),
+                    committed: formatCurrency(monthlyBillsOutflow + monthlyLoansOutflow),
+                  })}
                 </ThemedText>
               ) : (
                 <ThemedText type="small" style={{ color: OVER_BUDGET_COLOR }}>
-                  Your committed expenses and loan payments exceed your household income by {formatCurrency(-leftover)}/mo.
+                  {t('financesOverviewOverBudget', { amount: formatCurrency(-leftover) })}
                 </ThemedText>
               )}
             </ThemedView>
@@ -132,38 +137,40 @@ export function FinancesOverviewSection({ onBack }: { onBack: () => void }) {
 
           <ThemedView type="backgroundElement" style={styles.heroCard}>
             <ThemedText type="small" themeColor="textSecondary" style={styles.heroLabel}>
-              MONTHLY OUTFLOW
+              {t('financesOverviewMonthlyOutflowLabel')}
             </ThemedText>
             <ThemedText type="title" style={styles.heroValue}>
               {formatCurrency(totalMonthlyOutflow)}
             </ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              {formatCurrency(monthlyBillsOutflow)} in expenses · {formatCurrency(monthlyLoansOutflow)} in loan payments
+              {t('financesOverviewOutflowBreakdown', { bills: formatCurrency(monthlyBillsOutflow), loans: formatCurrency(monthlyLoansOutflow) })}
             </ThemedText>
           </ThemedView>
 
           <ThemedView type="backgroundElement" style={styles.heroCard}>
             <ThemedText type="small" themeColor="textSecondary" style={styles.heroLabel}>
-              TOTAL DEBT REMAINING
+              {t('financesOverviewTotalDebtLabel')}
             </ThemedText>
             <ThemedText type="title" style={styles.heroValue}>
               {formatCurrency(totalDebtRemaining)}
             </ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              across {loans.length} {loans.length === 1 ? 'loan' : 'loans'}
+              {loans.length === 1 ? t('financesOverviewLoanCountOne') : t('financesOverviewLoanCountOther', { count: loans.length })}
             </ThemedText>
           </ThemedView>
 
           {goals.length > 0 && (
             <ThemedView type="backgroundElement" style={styles.heroCard}>
               <ThemedText type="small" themeColor="textSecondary" style={styles.heroLabel}>
-                TOTAL SAVED
+                {t('financesOverviewTotalSavedLabel')}
               </ThemedText>
               <ThemedText type="title" style={styles.heroValue}>
                 {formatCurrency(totalSaved)}
               </ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                towards {formatCurrency(totalSavingsTarget)} across {goals.length} {goals.length === 1 ? 'goal' : 'goals'}
+                {goals.length === 1
+                  ? t('financesOverviewSavedTowardsOne', { target: formatCurrency(totalSavingsTarget) })
+                  : t('financesOverviewSavedTowardsOther', { target: formatCurrency(totalSavingsTarget), count: goals.length })}
               </ThemedText>
             </ThemedView>
           )}
@@ -171,7 +178,9 @@ export function FinancesOverviewSection({ onBack }: { onBack: () => void }) {
           {pendingOneOffBills.length > 0 && (
             <ThemedView type="backgroundElement" style={styles.card}>
               <ThemedText type="small" themeColor="textSecondary">
-                {pendingOneOffBills.length} one-time {pendingOneOffBills.length === 1 ? 'expense' : 'expenses'} pending · {formatCurrency(pendingOneOffTotal)}
+                {pendingOneOffBills.length === 1
+                  ? t('financesOverviewOneTimePendingOne', { amount: formatCurrency(pendingOneOffTotal) })
+                  : t('financesOverviewOneTimePendingOther', { count: pendingOneOffBills.length, amount: formatCurrency(pendingOneOffTotal) })}
               </ThemedText>
             </ThemedView>
           )}
@@ -179,14 +188,15 @@ export function FinancesOverviewSection({ onBack }: { onBack: () => void }) {
           {loanSchedules.length > 0 && (
             <View style={styles.loansSection}>
               <ThemedText type="small" themeColor="textSecondary" style={styles.sectionHeader}>
-                LOANS
+                {t('financesOverviewLoansSectionHeader')}
               </ThemedText>
               {loanSchedules.map(({ loan, schedule }) => (
                 <ThemedView key={loan.id} type="backgroundElement" style={styles.loanRow}>
                   <ThemedText type="default">{loan.name}</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
-                    {formatCurrency(schedule.scheduledMonthlyPayment + Number(loan.extra_monthly_payment))}/mo ·{' '}
-                    {formatPayoffDate(loan.as_of_date, schedule.payoffMonths)}
+                    {formatCurrency(schedule.scheduledMonthlyPayment + Number(loan.extra_monthly_payment))}
+                    {language === 'is' ? '/mán' : '/mo'} ·{' '}
+                    {formatPayoffDate(loan.as_of_date, schedule.payoffMonths, language)}
                   </ThemedText>
                 </ThemedView>
               ))}
@@ -195,7 +205,7 @@ export function FinancesOverviewSection({ onBack }: { onBack: () => void }) {
 
           {bills.length === 0 && loans.length === 0 && goals.length === 0 && (
             <ThemedText type="small" themeColor="textSecondary" style={styles.emptyText}>
-              Add an expense, a loan, or a savings goal to see your household&apos;s totals here.
+              {t('financesOverviewEmptyState')}
             </ThemedText>
           )}
         </ScrollView>

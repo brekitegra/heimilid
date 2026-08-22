@@ -9,6 +9,7 @@ import { LockIcon } from '@/components/icons/field-icons';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
+import { useTranslation } from '@/hooks/use-language';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
 import { supabase } from '@/lib/supabase';
@@ -54,6 +55,7 @@ function parseAuthParams(url: string) {
  * (password recovery). */
 export default function AuthCallbackScreen() {
   const theme = useTheme();
+  const t = useTranslation();
   const nativeUrl = Linking.useURL();
   const [status, setStatus] = useState<Status>('working');
   const [errorMessage, setErrorMessage] = useState('');
@@ -77,7 +79,7 @@ export default function AuthCallbackScreen() {
       return;
     }
     if (!accessToken || !refreshToken) {
-      setErrorMessage('This link is missing or has already been used.');
+      setErrorMessage(t('authCallbackLinkInvalid'));
       setStatus('error');
       return;
     }
@@ -99,26 +101,26 @@ export default function AuthCallbackScreen() {
         goHome();
       }
     });
-  }, [nativeUrl]);
+  }, [nativeUrl, t]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   async function handleSetPassword() {
     if (password.length < 6) {
-      showAlert('Password must be at least 6 characters');
+      showAlert(t('authCallbackPasswordTooShort'));
       return;
     }
     if (password !== confirmPassword) {
-      showAlert("Passwords don't match");
+      showAlert(t('passwordsDontMatchTitle'));
       return;
     }
     setSubmitting(true);
     const { error } = await supabase.auth.updateUser({ password });
     setSubmitting(false);
     if (error) {
-      showAlert("Couldn't update password", error.message);
+      showAlert(t('authCallbackUpdatePasswordError'), error.message);
       return;
     }
-    showAlert('Password updated', "You're signed in with your new password.");
+    showAlert(t('authCallbackPasswordUpdatedTitle'), t('authCallbackPasswordUpdatedBody'));
     goHome();
   }
 
@@ -136,7 +138,7 @@ export default function AuthCallbackScreen() {
           {status === 'working' && (
             <>
               <ThemedText type="subtitle" style={styles.title}>
-                One moment…
+                {t('authCallbackWorking')}
               </ThemedText>
               <ActivityIndicator color={theme.accent} style={styles.spinner} />
             </>
@@ -145,10 +147,10 @@ export default function AuthCallbackScreen() {
           {status === 'setPassword' && (
             <>
               <ThemedText type="subtitle" style={styles.title}>
-                Set a new password
+                {t('authCallbackSetPasswordTitle')}
               </ThemedText>
               <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-                Choose a new password for your account.
+                {t('authCallbackSetPasswordSubtitle')}
               </ThemedText>
               <View style={styles.inputWrapper}>
                 <View style={styles.inputIcon}>
@@ -160,7 +162,7 @@ export default function AuthCallbackScreen() {
                     styles.inputWithIcon,
                     { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text },
                   ]}
-                  placeholder="New password"
+                  placeholder={t('newPasswordPlaceholder')}
                   placeholderTextColor={theme.textSecondary}
                   secureTextEntry
                   value={password}
@@ -177,7 +179,7 @@ export default function AuthCallbackScreen() {
                     styles.inputWithIcon,
                     { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text },
                   ]}
-                  placeholder="Confirm new password"
+                  placeholder={t('confirmNewPasswordPlaceholder')}
                   placeholderTextColor={theme.textSecondary}
                   secureTextEntry
                   value={confirmPassword}
@@ -192,7 +194,7 @@ export default function AuthCallbackScreen() {
                   <ActivityIndicator color={theme.background} />
                 ) : (
                   <ThemedText type="smallBold" themeColor="background">
-                    Update password
+                    {t('updatePasswordButton')}
                   </ThemedText>
                 )}
               </Pressable>
@@ -202,14 +204,14 @@ export default function AuthCallbackScreen() {
           {status === 'emailChanged' && (
             <>
               <ThemedText type="subtitle" style={styles.title}>
-                Email updated
+                {t('authCallbackEmailUpdatedTitle')}
               </ThemedText>
               <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-                Your account&apos;s email address has been changed.
+                {t('authCallbackEmailUpdatedBody')}
               </ThemedText>
               <Pressable style={[styles.submit, { backgroundColor: theme.accent }]} onPress={goHome}>
                 <ThemedText type="smallBold" themeColor="background">
-                  Continue
+                  {t('continueButton')}
                 </ThemedText>
               </Pressable>
             </>
@@ -218,14 +220,14 @@ export default function AuthCallbackScreen() {
           {status === 'error' && (
             <>
               <ThemedText type="subtitle" style={styles.title}>
-                Link expired
+                {t('authCallbackLinkExpiredTitle')}
               </ThemedText>
               <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-                {errorMessage || 'This link is no longer valid. Request a new one from the sign-in screen.'}
+                {errorMessage || t('authCallbackLinkExpiredBody')}
               </ThemedText>
               <Pressable style={[styles.submit, { backgroundColor: theme.accent }]} onPress={goHome}>
                 <ThemedText type="smallBold" themeColor="background">
-                  Back to sign in
+                  {t('authBackToSignIn')}
                 </ThemedText>
               </Pressable>
             </>

@@ -5,6 +5,12 @@ export type AmortizationMonth = {
   payment: number;
   principalPortion: number;
   interestPortion: number;
+  /** The slice of this month's payment attributable to the loan's
+   * extraMonthlyPayment, separate from the regular scheduled principal
+   * portion — lets the PDF/UI show the overpayment's own line rather
+   * than folding it invisibly into `principalPortion`. Always 0 when
+   * extraMonthlyPayment is 0. */
+  extraPortion: number;
   /** Nominal kr added to the balance this month by assumed CPI growth.
    * Always 0 for non_indexed loans. */
   indexationAdded: number;
@@ -155,7 +161,7 @@ export function computeLoanSchedule(loan: LoanScheduleInput): AmortizationResult
     totalIndexationAdded += indexationAdded;
     totalPaid += payment;
 
-    schedule.push({ month, payment, principalPortion, interestPortion, indexationAdded, endingBalance });
+    schedule.push({ month, payment, principalPortion, interestPortion, extraPortion, indexationAdded, endingBalance });
 
     idxPrev = idx;
 

@@ -1,4 +1,6 @@
 import type { Bill, BillFrequency } from '@/types/bill';
+import type { Language } from '@/hooks/use-language';
+import { formatMonthDay } from '@/lib/date-locale';
 
 function startOfDay(date: Date): Date {
   const d = new Date(date);
@@ -9,23 +11,36 @@ function startOfDay(date: Date): Date {
 const MS_PER_DAY = 86_400_000;
 
 /** "Overdue" / "Due today" / "Due tomorrow" / "Due Jan 5" for a `once`
- * bill's due day. Returns null if there's no due day set. */
-export function formatDueDay(dueDay: number | null, now = new Date()): { text: string; overdue: boolean } | null {
+ * bill's due day. Returns null if there's no due day set. Plain function,
+ * no hook access — see chore-format.ts's doc comment — so it takes
+ * `language` directly rather than going through t(). */
+export function formatDueDay(dueDay: number | null, now = new Date(), language: Language = 'en'): { text: string; overdue: boolean } | null {
   if (!dueDay) return null;
   const due = new Date(now.getFullYear(), now.getMonth(), dueDay);
   const diffDays = Math.round((due.getTime() - startOfDay(now).getTime()) / MS_PER_DAY);
 
+  if (language === 'is') {
+    if (diffDays < 0) return { text: 'Yfir gjalddaga', overdue: true };
+    if (diffDays === 0) return { text: 'Gjalddagi í dag', overdue: false };
+    if (diffDays === 1) return { text: 'Gjalddagi á morgun', overdue: false };
+    return { text: `Gjalddagi ${formatMonthDay(due, language)}`, overdue: false };
+  }
   if (diffDays < 0) return { text: 'Overdue', overdue: true };
   if (diffDays === 0) return { text: 'Due today', overdue: false };
   if (diffDays === 1) return { text: 'Due tomorrow', overdue: false };
-  return { text: `Due ${due.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`, overdue: false };
+  return { text: `Due ${formatMonthDay(due, language)}`, overdue: false };
 }
 
 /** "Last paid today/yesterday/N days ago" for a recurring bill. Returns
  * null if it's never been paid. */
-export function formatLastPaid(bill: Bill, now = new Date()): string | null {
+export function formatLastPaid(bill: Bill, now = new Date(), language: Language = 'en'): string | null {
   if (bill.frequency === 'once' || !bill.last_paid_at) return null;
   const diffDays = Math.round((startOfDay(now).getTime() - startOfDay(new Date(bill.last_paid_at)).getTime()) / MS_PER_DAY);
+  if (language === 'is') {
+    if (diffDays <= 0) return 'Síðast greitt í dag';
+    if (diffDays === 1) return 'Síðast greitt í gær';
+    return `Síðast greitt fyrir ${diffDays} dögum`;
+  }
   if (diffDays <= 0) return 'Last paid today';
   if (diffDays === 1) return 'Last paid yesterday';
   return `Last paid ${diffDays} days ago`;
@@ -60,10 +75,18 @@ const STREAK_UNIT: Partial<Record<BillFrequency, string>> = {
   yearly: 'year',
 };
 
+const STREAK_UNIT_IS: Partial<Record<BillFrequency, string>> = {
+  daily: 'daga',
+  weekly: 'vikna',
+  monthly: 'mánaða',
+  yearly: 'ára',
+};
+
 /** "3-month streak" once there's something worth noting (2+ in a row).
  * Returns null for `once` bills or a streak that hasn't started. */
-export function formatBillStreak(bill: Bill): string | null {
+export function formatBillStreak(bill: Bill, language: Language = 'en'): string | null {
   const unit = STREAK_UNIT[bill.frequency];
   if (!unit || bill.streak_count < 2) return null;
+  if (language === 'is') return `${bill.streak_count} ${STREAK_UNIT_IS[bill.frequency]} runa`;
   return `${bill.streak_count}-${unit} streak`;
 }

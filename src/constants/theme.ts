@@ -72,3 +72,18 @@ export const Spacing = {
 
 export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
 export const MaxContentWidth = 800;
+
+// The web tab bar (app-tabs.web.tsx) is position: absolute over the
+// page — every web screen needs its own top padding to clear it, or its
+// header content renders hidden underneath the bar. This is the bar's
+// actual rendered height in the browser (measured via
+// getBoundingClientRect(), not derived by hand from its RN style props
+// — paddingVertical + line-height + the quick-menu icon's height
+// compound in ways that are easy to get subtly wrong on paper).
+// Previously every screen (index/household/notes/profile.tsx) carried
+// its own independently hardcoded copy of this number — when the tab
+// bar was enlarged, none of the four got updated, and content quietly
+// rendered underneath the taller bar. One shared constant instead: if
+// app-tabs.web.tsx's own sizing changes (font size, padding, the
+// quick-menu icon), re-measure and update this one value.
+export const WebTabBarHeight = 108;

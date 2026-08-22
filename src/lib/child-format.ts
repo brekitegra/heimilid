@@ -1,5 +1,9 @@
+import type { Language } from '@/hooks/use-language';
+
 // Mirrors pet-format.ts's age helpers exactly — same birth-date math, just
-// worded for a kid rather than a pet.
+// worded for a kid rather than a pet. Same language-branching approach —
+// see chore-format.ts's doc comment for why these plain functions take
+// `language` directly instead of using t().
 
 function startOfDay(date: Date): Date {
   const d = new Date(date);
@@ -8,8 +12,11 @@ function startOfDay(date: Date): Date {
 }
 
 /** "3 years old" / "8 months old" / "Newborn" from a birth date. Returns
- * null if there's no birth date set. */
-export function formatChildAge(birthDate: string | null, now = new Date()): string | null {
+ * null if there's no birth date set. The Icelandic branch drops the
+ * gendered "gamall/gömul/gamalt" adjective (no gender field to agree
+ * with) — "3 ára"/"8 mánaða" alone is standard, natural Icelandic for
+ * stating an age. */
+export function formatChildAge(birthDate: string | null, now = new Date(), language: Language = 'en'): string | null {
   if (!birthDate) return null;
   const birth = startOfDay(new Date(`${birthDate}T00:00:00`));
   if (Number.isNaN(birth.getTime())) return null;
@@ -18,6 +25,11 @@ export function formatChildAge(birthDate: string | null, now = new Date()): stri
   if (now.getDate() < birth.getDate()) months -= 1;
   months = Math.max(0, months);
 
+  if (language === 'is') {
+    if (months < 1) return 'Nýfætt';
+    if (months < 12) return `${months} mánaða`;
+    return `${Math.floor(months / 12)} ára`;
+  }
   if (months < 1) return 'Newborn';
   if (months < 12) return `${months} month${months === 1 ? '' : 's'} old`;
   const years = Math.floor(months / 12);

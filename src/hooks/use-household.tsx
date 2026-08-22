@@ -1,6 +1,7 @@
 import type { Session } from '@supabase/supabase-js';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { useTranslation } from '@/hooks/use-language';
 import { supabase } from '@/lib/supabase';
 import type { Household, HouseholdMember } from '@/types/household';
 
@@ -21,6 +22,7 @@ type HouseholdContextValue = {
 const HouseholdContext = createContext<HouseholdContextValue | null>(null);
 
 export function HouseholdProvider({ session, children }: { session: Session; children: ReactNode }) {
+  const t = useTranslation();
   const [loading, setLoading] = useState(true);
   const [household, setHousehold] = useState<Household | null>(null);
   const [members, setMembers] = useState<HouseholdMember[]>([]);
@@ -126,12 +128,12 @@ export function HouseholdProvider({ session, children }: { session: Session; chi
     async (name: string) => {
       if (!household) return;
       const trimmed = name.trim();
-      if (!trimmed) throw new Error('Household name cannot be empty');
+      if (!trimmed) throw new Error(t('householdNameCannotBeEmpty'));
       const { error: updateError } = await supabase.from('households').update({ name: trimmed }).eq('id', household.id);
       if (updateError) throw updateError;
       await loadHousehold();
     },
-    [household, loadHousehold]
+    [household, loadHousehold, t]
   );
 
   // Owner-only (enforced by RLS) — removing someone else. Self-removal

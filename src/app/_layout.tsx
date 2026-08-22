@@ -3,10 +3,12 @@ import { DarkTheme, DefaultTheme, Slot, ThemeProvider, usePathname } from 'expo-
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
 
+import { AlertHost } from '@/components/alert-host';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { AuthScreen } from '@/components/auth-screen';
 import { HouseDoorIntro } from '@/components/house-door-intro';
 import { HouseholdGate } from '@/components/household-gate';
+import { LanguageProvider } from '@/hooks/use-language';
 import { useResolvedColorScheme } from '@/hooks/use-resolved-color-scheme';
 import { ThemePreferenceProvider } from '@/hooks/use-theme-preference';
 import { supabase } from '@/lib/supabase';
@@ -36,9 +38,11 @@ export default function TabLayout() {
   // The resolved-scheme hook needs to sit under the preference provider,
   // so the actual layout content lives in a child component.
   return (
-    <ThemePreferenceProvider>
-      <RootContent session={session} pathname={pathname} />
-    </ThemePreferenceProvider>
+    <LanguageProvider>
+      <ThemePreferenceProvider>
+        <RootContent session={session} pathname={pathname} />
+      </ThemePreferenceProvider>
+    </LanguageProvider>
   );
 }
 
@@ -56,6 +60,7 @@ function RootContent({ session, pathname }: { session: Session | null; pathname:
     return (
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AnimatedSplashOverlay />
+        <AlertHost />
         <Slot />
       </ThemeProvider>
     );
@@ -64,6 +69,7 @@ function RootContent({ session, pathname }: { session: Session | null; pathname:
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AnimatedSplashOverlay />
+      <AlertHost />
       {session ? (
         <HouseholdGate session={session} />
       ) : (

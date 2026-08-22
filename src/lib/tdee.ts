@@ -41,16 +41,36 @@ export function computeTDEE(bmr: number, activityLevel: ActivityLevel): number {
 
 export type MacroTargets = { calorieTarget: number; proteinTargetG: number; fatTargetG: number; carbTargetG: number };
 
-/** Suggested daily targets from a TDEE and goal — purely a starting
- * point, every field stays freely editable afterward (a "Recalculate"
- * just re-derives them, it doesn't lock anything in). Protein is set
- * relative to bodyweight (a standard ~1.8g/kg for maintaining/building
- * muscle) rather than as a fixed share of calories, since that's the
- * macro people actually care about hitting consistently; fat gets a
- * fixed 25% of calories, and carbs fill whatever's left. */
+// Protein per kg of bodyweight, the midpoint of the commonly-cited range
+// for each goal — deliberately *not* one flat ratio for every goal (an
+// earlier version of this used a flat 1.8g/kg regardless of goal, which
+// is within range for bulking but actually overshoots the recommended
+// range for maintaining and sits at the low end for cutting):
+//  - Bulk (1.6–2.2g/kg): a calorie surplus from carbs/fat already spares
+//    protein, so you don't need the top of the range to grow muscle.
+//  - Maintain (1.4–1.6g/kg): balanced energy means this lower baseline
+//    is enough to maintain muscle and recover.
+//  - Cut (1.6–2.4g/kg): needs to run higher than either of the above —
+//    protein is what prevents muscle loss while in a calorie deficit,
+//    and helps manage hunger.
+const PROTEIN_G_PER_KG: Record<Goal, number> = {
+  cut: 2.0,
+  maintain: 1.5,
+  bulk: 1.9,
+};
+
+/** Suggested daily targets from a TDEE and goal. The result is shown
+ * read-only in the UI (no hand-editing a single macro out of sync with
+ * what these inputs would actually produce) — the only way to change a
+ * target is to change age/weight/height/activity/goal above and tap
+ * Calculate again. Protein is set relative to bodyweight (see
+ * PROTEIN_G_PER_KG above, goal-dependent) rather than as a fixed share
+ * of calories, since that's the macro people actually care about
+ * hitting consistently; fat gets a fixed 25% of calories, and carbs
+ * fill whatever's left. */
 export function computeMacroTargets(tdee: number, goal: Goal, weightKg: number): MacroTargets {
   const calorieTarget = Math.round(tdee * GOAL_MULTIPLIERS[goal]);
-  const proteinTargetG = Math.round(weightKg * 1.8);
+  const proteinTargetG = Math.round(weightKg * PROTEIN_G_PER_KG[goal]);
   const proteinCalories = proteinTargetG * 4;
   const fatCalories = calorieTarget * 0.25;
   const fatTargetG = Math.round(fatCalories / 9);

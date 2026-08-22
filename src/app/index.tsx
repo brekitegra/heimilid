@@ -14,18 +14,19 @@ import { PetsSection } from '@/components/sections/pets-section';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { BottomTabInset, MaxContentWidth, Spacing, WebTabBarHeight } from '@/constants/theme';
 import { useHousehold } from '@/hooks/use-household';
+import { useTranslation, type TranslationKey } from '@/hooks/use-language';
 
 type Section = 'chores' | 'groceries' | 'pets' | 'finances' | 'kids' | 'health';
 
-const SECTIONS: { key: Section; title: string; hint: string; Icon: typeof ChoresIcon }[] = [
-  { key: 'chores', title: 'Chores', hint: 'Assign and track household chores', Icon: ChoresIcon },
-  { key: 'groceries', title: 'Groceries', hint: 'Shopping lists, recipes, and dinner plans', Icon: GroceriesIcon },
-  { key: 'pets', title: 'Pets', hint: 'Feeding, vet visits, and care', Icon: PetsIcon },
-  { key: 'finances', title: 'Finances', hint: 'Accounts and recurring bills', Icon: FinancesIcon },
-  { key: 'kids', title: 'Kids', hint: 'School, practices, and star rewards', Icon: KidsIcon },
-  { key: 'health', title: 'Health', hint: 'Training, macros, and TDEE — just for you', Icon: HealthIcon },
+const SECTIONS: { key: Section; titleKey: TranslationKey; hintKey: TranslationKey; Icon: typeof ChoresIcon }[] = [
+  { key: 'chores', titleKey: 'choresTitle', hintKey: 'choresHint', Icon: ChoresIcon },
+  { key: 'groceries', titleKey: 'groceriesTitle', hintKey: 'groceriesHint', Icon: GroceriesIcon },
+  { key: 'pets', titleKey: 'petsTitle', hintKey: 'petsHint', Icon: PetsIcon },
+  { key: 'finances', titleKey: 'financesTitle', hintKey: 'financesHint', Icon: FinancesIcon },
+  { key: 'kids', titleKey: 'kidsTitle', hintKey: 'kidsHint', Icon: KidsIcon },
+  { key: 'health', titleKey: 'healthTitle', hintKey: 'healthHint', Icon: HealthIcon },
 ];
 
 const SECTION_COMPONENTS: Record<Section, (props: { onBack: () => void }) => React.JSX.Element> = {
@@ -39,6 +40,7 @@ const SECTION_COMPONENTS: Record<Section, (props: { onBack: () => void }) => Rea
 
 export default function HomeScreen() {
   const { household } = useHousehold();
+  const t = useTranslation();
   const [activeSection, setActiveSection] = useState<Section | null>(null);
 
   const ActiveSectionComponent = activeSection ? SECTION_COMPONENTS[activeSection] : null;
@@ -58,10 +60,10 @@ export default function HomeScreen() {
           <Animated.View entering={FadeIn.duration(220)} exiting={FadeOut.duration(150)} style={styles.hub}>
             <ThemedView style={styles.heroSection}>
               <ThemedText type="small" themeColor="textSecondary">
-                Welcome home
+                {t('welcomeHome')}
               </ThemedText>
               <ThemedText type="title" style={styles.title}>
-                {household?.name ?? 'Heimilið'}
+                {household?.name ?? t('tabHome')}
               </ThemedText>
             </ThemedView>
 
@@ -69,8 +71,8 @@ export default function HomeScreen() {
               {SECTIONS.map((section) => (
                 <HubCard
                   key={section.key}
-                  title={section.title}
-                  hint={section.hint}
+                  title={t(section.titleKey)}
+                  hint={t(section.hintKey)}
                   Icon={section.Icon}
                   onPress={() => setActiveSection(section.key)}
                 />
@@ -97,12 +99,10 @@ const styles = StyleSheet.create({
     paddingBottom: BottomTabInset + Spacing.three,
     maxWidth: MaxContentWidth,
     alignSelf: 'stretch',
-    // The web tab bar (app-tabs.web.tsx) is position: absolute over the
-    // page, so content needs its own top offset to clear it. Spacing.six
-    // alone lines up almost exactly flush with the tab bar's own bottom
-    // edge (its own margin included) — add a bit more so there's an
-    // actual visible gap instead of content nearly touching the tab bar.
-    ...Platform.select({ web: { paddingTop: Spacing.six + Spacing.three } }),
+    // WebTabBarHeight clears the tab bar's own bottom edge exactly;
+    // the extra Spacing.three on top of that is a real visible gap
+    // instead of content nearly touching the bar.
+    ...Platform.select({ web: { paddingTop: WebTabBarHeight + Spacing.three } }),
   },
   hub: { flex: 1, alignItems: 'center', gap: Spacing.three },
   sectionWrapper: { flex: 1, alignSelf: 'stretch' },

@@ -14,6 +14,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { ageYearsFromBirthDate, birthDateFromAgeYears, formatChildAge } from '@/lib/child-format';
 import { formatDueDate } from '@/lib/chore-format';
+import { formatMonthDay } from '@/lib/date-locale';
 import { formatKidChoreLastDone, formatKidChoreStreak } from '@/lib/kid-chore-format';
 import {
   formatLastAttended,
@@ -22,49 +23,102 @@ import {
   localIsoDateInDays,
   toLocalISODate,
   WEEKDAY_LABELS,
-  WEEKDAY_SHORT,
 } from '@/lib/practice-format';
 import { SCHOOL_ITEM_TYPES, schoolItemTypeEmoji, schoolItemTypeLabel } from '@/lib/school-item-format';
 import { useChildren } from '@/hooks/use-children';
 import { useDelayedBlur } from '@/hooks/use-delayed-blur';
 import { useHousehold } from '@/hooks/use-household';
+import { useLanguage, useTranslation, type Language, type TranslationKey } from '@/hooks/use-language';
 import { isKidChoreDoneNow, useKidChores } from '@/hooks/use-kid-chores';
 import { isPracticeAttended, usePractices } from '@/hooks/use-practices';
 import { useSchoolItems } from '@/hooks/use-school-items';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
+import { isSameName } from '@/lib/duplicate-check';
 import { XpPopup } from '@/components/xp-popup';
 import type { Child, ChildInput } from '@/types/child';
 import type { KidChore, KidChoreFrequency, KidChoreInput } from '@/types/kid-chore';
 import type { Practice, PracticeInput } from '@/types/practice';
 import type { SchoolItem, SchoolItemInput, SchoolItemType } from '@/types/school-item';
 
-const DUE_DATE_OPTIONS: { label: string; value: string | null }[] = [
-  { label: 'No date', value: null },
-  { label: 'Today', value: localIsoDateInDays(0) },
-  { label: 'Tomorrow', value: localIsoDateInDays(1) },
-  { label: 'In a week', value: localIsoDateInDays(7) },
+const DUE_DATE_OPTIONS: { labelKey: TranslationKey; value: string | null }[] = [
+  { labelKey: 'dueDateNone', value: null },
+  { labelKey: 'dueDateToday', value: localIsoDateInDays(0) },
+  { labelKey: 'dueDateTomorrow', value: localIsoDateInDays(1) },
+  { labelKey: 'dueDateInAWeek', value: localIsoDateInDays(7) },
 ];
 
-const EVENT_DATE_OPTIONS: { label: string; value: string }[] = [
-  { label: 'Today', value: localIsoDateInDays(0) },
-  { label: 'Tomorrow', value: localIsoDateInDays(1) },
-  { label: 'In 3 days', value: localIsoDateInDays(3) },
-  { label: 'In a week', value: localIsoDateInDays(7) },
-  { label: 'In 2 weeks', value: localIsoDateInDays(14) },
-  { label: 'In a month', value: localIsoDateInDays(30) },
+const EVENT_DATE_OPTIONS: { labelKey: TranslationKey; value: string }[] = [
+  { labelKey: 'eventDateToday', value: localIsoDateInDays(0) },
+  { labelKey: 'eventDateTomorrow', value: localIsoDateInDays(1) },
+  { labelKey: 'eventDateIn3Days', value: localIsoDateInDays(3) },
+  { labelKey: 'eventDateInAWeek', value: localIsoDateInDays(7) },
+  { labelKey: 'eventDateIn2Weeks', value: localIsoDateInDays(14) },
+  { labelKey: 'eventDateInAMonth', value: localIsoDateInDays(30) },
 ];
 
-const SUBJECT_QUICKPICKS = ['Math', 'Science', 'English', 'History', 'Art', 'PE'];
-const ACTIVITY_QUICKPICKS = ['Soccer', 'Basketball', 'Piano', 'Swimming', 'Dance', 'Tutoring'];
-const CHORE_QUICKPICKS = ['Make bed', 'Feed pet', 'Tidy room', 'Brush teeth', 'Set the table', 'Homework time'];
+// Tapping one of these pills sets the title/subject field directly to
+// whatever text is showing on the pill right now (via t(labelKey)) —
+// not a fixed English code — since that field is plain freeform text
+// with no lookup anywhere else keyed off its exact value (unlike, say,
+// pets' SPECIES_OPTIONS, which doubles as an emoji-lookup key and so
+// genuinely can't be translated this way without a real code/label
+// split). This means the stored subject/title ends up in whatever
+// language was active when it was picked, same as if it had been typed
+// by hand — the more intuitive behavior for a freeform field than
+// silently storing English behind an Icelandic-looking button.
+const SUBJECT_QUICKPICKS: TranslationKey[] = ['kidsSubjectMath', 'kidsSubjectScience', 'kidsSubjectEnglish', 'kidsSubjectHistory', 'kidsSubjectArt', 'kidsSubjectPE'];
+const ACTIVITY_QUICKPICKS: TranslationKey[] = [
+  'kidsActivitySoccer',
+  'kidsActivityBasketball',
+  'kidsActivityPiano',
+  'kidsActivitySwimming',
+  'kidsActivityDance',
+  'kidsActivityTutoring',
+];
+const CHORE_QUICKPICKS: TranslationKey[] = [
+  'kidsChoreMakeBed',
+  'kidsChoreFeedPet',
+  'kidsChoreTidyRoom',
+  'kidsChoreBrushTeeth',
+  'kidsChoreSetTable',
+  'kidsChoreHomeworkTime',
+];
 
-const KID_CHORE_FREQUENCIES: { value: KidChoreFrequency; label: string }[] = [
-  { value: 'once', label: 'Once' },
-  { value: 'daily', label: 'Daily' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'yearly', label: 'Yearly' },
+const KID_CHORE_FREQUENCIES: { value: KidChoreFrequency; labelKey: TranslationKey }[] = [
+  // Kids gets its own "once" label rather than the shared frequencyOnce
+  // ("Once") — "stakt verkefni"/"One-off task" reads far more naturally
+  // for a kid's chore than the generic frequency term other features
+  // (Chores/Pets/Expenses) share.
+  { value: 'once', labelKey: 'kidsFrequencyOnce' },
+  { value: 'daily', labelKey: 'frequencyDaily' },
+  { value: 'weekly', labelKey: 'frequencyWeekly' },
+  { value: 'monthly', labelKey: 'frequencyMonthly' },
+  { value: 'yearly', labelKey: 'frequencyYearly' },
+];
+
+// Sunday-first, matching WEEKDAY_LABELS/day_of_week (0 = Sunday) — used to
+// look up a translated short weekday name by that untranslated index.
+const WEEKDAY_SHORT_KEYS: TranslationKey[] = [
+  'weekdayShortSun',
+  'weekdayShortMon',
+  'weekdayShortTue',
+  'weekdayShortWed',
+  'weekdayShortThu',
+  'weekdayShortFri',
+  'weekdayShortSat',
+];
+
+// Same Sunday-first order, full weekday names — for the calendar agenda
+// header, which needs "Monday, Mar 5" rather than a 3-letter abbreviation.
+const WEEKDAY_FULL_KEYS: TranslationKey[] = [
+  'weekdaySunday',
+  'weekdayMonday',
+  'weekdayTuesday',
+  'weekdayWednesday',
+  'weekdayThursday',
+  'weekdayFriday',
+  'weekdaySaturday',
 ];
 
 const OVERDUE_COLOR = '#e5484d';
@@ -91,86 +145,95 @@ type MetaPart = { text: string; warn?: boolean };
 function buildSchoolMeta(
   item: SchoolItem,
   assigneeName: string | null | undefined,
-  completerName: string | null | undefined
+  completerName: string | null | undefined,
+  t: ReturnType<typeof useTranslation>,
+  language: Language
 ): MetaPart[] {
-  const parts: MetaPart[] = [{ text: schoolItemTypeLabel(item.item_type) }];
+  const parts: MetaPart[] = [{ text: schoolItemTypeLabel(item.item_type, language) }];
   if (item.subject) parts.push({ text: item.subject });
   if (assigneeName) parts.push({ text: assigneeName });
   if (!item.is_done) {
-    const due = formatDueDate(item.due_date);
+    const due = formatDueDate(item.due_date, new Date(), language);
     if (due) parts.push({ text: due.text, warn: due.overdue });
   }
   // Whoever actually checked it off, not necessarily who it was assigned
   // to — matches Chores'/Pets' "helping out earns credit too" convention.
-  if (item.is_done && completerName) parts.push({ text: `Completed by ${completerName}` });
+  if (item.is_done && completerName) parts.push({ text: t('kidsCompletedBy', { name: completerName }) });
   return parts;
 }
 
 function buildPracticeMeta(
   practice: Practice,
   assigneeName: string | null | undefined,
-  completerName: string | null | undefined
+  completerName: string | null | undefined,
+  t: ReturnType<typeof useTranslation>,
+  language: Language
 ): MetaPart[] {
   const parts: MetaPart[] = [];
   if (practice.is_recurring) {
-    parts.push({ text: practice.day_of_week !== null ? WEEKDAY_SHORT[practice.day_of_week] : 'Weekly' });
+    parts.push({ text: practice.day_of_week !== null ? t(WEEKDAY_SHORT_KEYS[practice.day_of_week]) : t('kidsWeeklyFallback') });
   } else if (practice.event_date && !practice.is_done) {
     // Matches chores' buildMeta convention: a completed one-off item never
     // shows its due-date caption (it vanishes from view moments later
     // anyway) — otherwise a just-attended event would flash "Overdue" in
     // plain (non-warning) text during its dazzle window, which reads as
     // confusing noise right when it should read as a win.
-    const due = formatDueDate(practice.event_date);
+    const due = formatDueDate(practice.event_date, new Date(), language);
     if (due) parts.push({ text: due.text, warn: due.overdue });
   }
-  const timeRange = formatTimeRange(practice.start_time, practice.end_time);
+  const timeRange = formatTimeRange(practice.start_time, practice.end_time, language);
   if (timeRange) parts.push({ text: timeRange });
   if (practice.location) parts.push({ text: practice.location });
   if (assigneeName) parts.push({ text: assigneeName });
 
   const attended = isPracticeAttended(practice);
   if (practice.is_recurring) {
-    const streak = formatPracticeStreak(practice);
+    const streak = formatPracticeStreak(practice, language);
     if (streak) parts.push({ text: streak });
     if (!attended) {
-      const lastAttended = formatLastAttended(practice);
+      const lastAttended = formatLastAttended(practice, new Date(), language);
       if (lastAttended) parts.push({ text: lastAttended });
     }
   }
   // Whoever actually checked it off, not necessarily who it was assigned
   // to — matches Chores'/Pets' "helping out earns credit too" convention.
-  if (attended && completerName) parts.push({ text: `Completed by ${completerName}` });
+  if (attended && completerName) parts.push({ text: t('kidsCompletedBy', { name: completerName }) });
   return parts;
 }
 
 function buildChoreMeta(
   chore: KidChore,
   assigneeName: string | null | undefined,
-  completerName: string | null | undefined
+  completerName: string | null | undefined,
+  t: ReturnType<typeof useTranslation>,
+  language: Language
 ): MetaPart[] {
-  const parts: MetaPart[] = [{ text: KID_CHORE_FREQUENCIES.find((f) => f.value === chore.frequency)?.label ?? '' }];
+  const frequencyKey = KID_CHORE_FREQUENCIES.find((f) => f.value === chore.frequency)?.labelKey;
+  const parts: MetaPart[] = [{ text: frequencyKey ? t(frequencyKey) : '' }];
   if (assigneeName) parts.push({ text: assigneeName });
 
   const done = isKidChoreDoneNow(chore);
   if (chore.frequency === 'once') {
     if (!chore.is_done) {
-      const due = formatDueDate(chore.due_date);
+      const due = formatDueDate(chore.due_date, new Date(), language);
       if (due) parts.push({ text: due.text, warn: due.overdue });
     }
   } else {
-    const streak = formatKidChoreStreak(chore);
+    const streak = formatKidChoreStreak(chore, language);
     if (streak) parts.push({ text: streak });
     if (!done) {
-      const lastDone = formatKidChoreLastDone(chore);
+      const lastDone = formatKidChoreLastDone(chore, new Date(), language);
       if (lastDone) parts.push({ text: lastDone });
     }
   }
-  if (done && completerName) parts.push({ text: `Completed by ${completerName}` });
+  if (done && completerName) parts.push({ text: t('kidsCompletedBy', { name: completerName }) });
   return parts;
 }
 
 export function KidsSection({ onBack }: { onBack: () => void }) {
   const theme = useTheme();
+  const t = useTranslation();
+  const { language } = useLanguage();
   const { members } = useHousehold();
   const {
     children,
@@ -325,7 +388,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
       }
       resetChildForm();
     } catch (err) {
-      showAlert(editingChildId ? "Couldn't save changes" : "Couldn't add child", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(editingChildId ? t('choresSaveErrorTitle') : t('kidsErrorCouldntAddChild'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setChildSubmitting(false);
     }
@@ -335,7 +398,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
     try {
       await pickAndUploadChildAvatar(child);
     } catch (err) {
-      showAlert("Couldn't update photo", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('errorCouldntUpdatePhoto'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
@@ -343,20 +406,20 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
     try {
       await removeChildAvatar(child);
     } catch (err) {
-      showAlert("Couldn't remove photo", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('errorCouldntRemovePhoto'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
   function confirmDeleteChild(child: Child) {
-    showAlert('Remove child', `Remove "${child.name}" and all of their school items and activities?`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('kidsConfirmDeleteChildTitle'), t('kidsConfirmDeleteChildMessage', { name: child.name }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Remove',
+        text: t('remove'),
         style: 'destructive',
         onPress: () => {
           if (editingChildId === child.id) resetChildForm();
           deleteChild(child).catch((err) => {
-            showAlert("Couldn't remove child", err instanceof Error ? err.message : 'Something went wrong');
+            showAlert(t('kidsErrorCouldntRemoveChild'), err instanceof Error ? err.message : t('genericErrorMessage'));
           });
         },
       },
@@ -415,6 +478,13 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
 
   async function handleSchoolSubmit() {
     if (!schoolComposerChildId || !schoolTitle.trim()) return;
+    const duplicate = schoolItems.find(
+      (i) => i.child_id === schoolComposerChildId && i.id !== editingSchoolId && !i.is_done && isSameName(i.title, schoolTitle)
+    );
+    if (duplicate) {
+      showAlert(t('errorAlreadyOnList'), t('kidsDuplicateSchoolItemMessage', { title: duplicate.title }));
+      return;
+    }
     const input: SchoolItemInput = {
       title: schoolTitle,
       itemType: schoolType,
@@ -432,7 +502,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
       }
       resetSchoolForm();
     } catch (err) {
-      showAlert(editingSchoolId ? "Couldn't save changes" : "Couldn't add item", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(editingSchoolId ? t('kidsErrorCouldntUpdateItem') : t('kidsErrorCouldntAddItem'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setSchoolSubmitting(false);
     }
@@ -447,20 +517,20 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
       showStarPopup(item.id, delta);
       adjustLocalStars(item.child_id, delta);
     } catch (err) {
-      showAlert("Couldn't update item", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('kidsErrorCouldntUpdateItem'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
   function confirmDeleteSchool(item: SchoolItem) {
-    showAlert('Delete item', `Remove "${item.title}"?`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('kidsConfirmDeleteItemTitle'), t('kidsConfirmDeleteMessage', { title: item.title }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('delete'),
         style: 'destructive',
         onPress: () => {
           if (editingSchoolId === item.id) resetSchoolForm();
           deleteSchoolItem(item).catch((err) => {
-            showAlert("Couldn't delete item", err instanceof Error ? err.message : 'Something went wrong');
+            showAlert(t('kidsErrorCouldntDeleteItem'), err instanceof Error ? err.message : t('genericErrorMessage'));
           });
         },
       },
@@ -502,6 +572,13 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
 
   async function handlePracticeSubmit() {
     if (!practiceComposerChildId || !practiceTitle.trim()) return;
+    const duplicate = practices.find(
+      (p) => p.child_id === practiceComposerChildId && p.id !== editingPracticeId && !p.is_done && isSameName(p.title, practiceTitle)
+    );
+    if (duplicate) {
+      showAlert(t('errorAlreadyOnList'), t('kidsDuplicatePracticeMessage', { title: duplicate.title }));
+      return;
+    }
     const input: PracticeInput = {
       title: practiceTitle,
       location: practiceLocation.trim() || null,
@@ -522,7 +599,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
       }
       resetPracticeForm();
     } catch (err) {
-      showAlert(editingPracticeId ? "Couldn't save changes" : "Couldn't add activity", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(editingPracticeId ? t('kidsErrorCouldntUpdateActivity') : t('kidsErrorCouldntAddActivity'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setPracticeSubmitting(false);
     }
@@ -539,20 +616,20 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
       showStarPopup(practice.id, delta);
       if (practice.child_id) adjustLocalStars(practice.child_id, delta);
     } catch (err) {
-      showAlert("Couldn't update activity", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('kidsErrorCouldntUpdateActivity'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
   function confirmDeletePractice(practice: Practice) {
-    showAlert('Delete activity', `Remove "${practice.title}"?`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('kidsConfirmDeleteActivityTitle'), t('kidsConfirmDeleteMessage', { title: practice.title }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('delete'),
         style: 'destructive',
         onPress: () => {
           if (editingPracticeId === practice.id) resetPracticeForm();
           deletePractice(practice).catch((err) => {
-            showAlert("Couldn't delete activity", err instanceof Error ? err.message : 'Something went wrong');
+            showAlert(t('kidsErrorCouldntDeleteActivity'), err instanceof Error ? err.message : t('genericErrorMessage'));
           });
         },
       },
@@ -586,6 +663,13 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
 
   async function handleChoreSubmit() {
     if (!choreComposerChildId || !choreTitle.trim()) return;
+    const duplicate = chores.find(
+      (c) => c.child_id === choreComposerChildId && c.id !== editingChoreId && !isKidChoreDoneNow(c) && isSameName(c.title, choreTitle)
+    );
+    if (duplicate) {
+      showAlert(t('errorAlreadyOnList'), t('kidsDuplicateChoreMessage', { title: duplicate.title }));
+      return;
+    }
     const input: KidChoreInput = {
       title: choreTitle,
       frequency: choreFrequency,
@@ -602,7 +686,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
       }
       resetChoreForm();
     } catch (err) {
-      showAlert(editingChoreId ? "Couldn't save changes" : "Couldn't add chore", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(editingChoreId ? t('kidsErrorCouldntUpdateChore') : t('kidsErrorCouldntAddChore'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setChoreSubmitting(false);
     }
@@ -618,20 +702,20 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
       showStarPopup(chore.id, delta);
       adjustLocalStars(chore.child_id, delta);
     } catch (err) {
-      showAlert("Couldn't update chore", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('kidsErrorCouldntUpdateChore'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
   function confirmDeleteChore(chore: KidChore) {
-    showAlert('Delete chore', `Remove "${chore.title}"?`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('kidsConfirmDeleteChoreTitle'), t('kidsConfirmDeleteMessage', { title: chore.title }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('delete'),
         style: 'destructive',
         onPress: () => {
           if (editingChoreId === chore.id) resetChoreForm();
           deleteChore(chore).catch((err) => {
-            showAlert("Couldn't delete chore", err instanceof Error ? err.message : 'Something went wrong');
+            showAlert(t('kidsErrorCouldntDeleteChore'), err instanceof Error ? err.message : t('genericErrorMessage'));
           });
         },
       },
@@ -734,7 +818,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
   const selectedDayAgenda = useMemo(() => {
     if (!selectedDate) return [];
     const selectedWeekday = new Date(`${selectedDate}T00:00:00`).getDay();
-    const childName = (childId: string) => children.find((c) => c.id === childId)?.name ?? 'Someone';
+    const childName = (childId: string) => children.find((c) => c.id === childId)?.name ?? t('kidsUnknownChild');
 
     const schoolAgenda = schoolItems
       .filter((i) => i.due_date === selectedDate)
@@ -743,7 +827,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
     const practiceAgenda = practices
       .filter((p) => (p.is_recurring ? p.day_of_week === selectedWeekday : p.event_date === selectedDate))
       .map((p) => {
-        const timeRange = formatTimeRange(p.start_time, p.end_time);
+        const timeRange = formatTimeRange(p.start_time, p.end_time, language);
         return {
           key: `practice-${p.id}`,
           text: `${childName(p.child_id ?? '')} — 🏃 ${p.title}${timeRange ? ` (${timeRange})` : ''}`,
@@ -755,14 +839,14 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
       .map((c) => ({ key: `chore-${c.id}`, text: `${childName(c.child_id)} — 🧹 ${c.title}` }));
 
     return [...schoolAgenda, ...practiceAgenda, ...choreAgenda];
-  }, [selectedDate, schoolItems, practices, chores, children]);
+  }, [selectedDate, schoolItems, practices, chores, children, t, language]);
 
   function renderSchoolRow(item: SchoolItem) {
     if (item.is_done && !dazzlingIds.has(item.id)) return null;
     const assignee = members.find((m) => m.user_id === item.assigned_to)?.profile?.full_name;
     const completer =
-      item.completed_by === schoolCurrentUserId ? 'you' : members.find((m) => m.user_id === item.completed_by)?.profile?.full_name;
-    const meta = buildSchoolMeta(item, assignee, completer);
+      item.completed_by === schoolCurrentUserId ? t('you') : members.find((m) => m.user_id === item.completed_by)?.profile?.full_name;
+    const meta = buildSchoolMeta(item, assignee, completer, t, language);
     const isDazzling = dazzlingIds.has(item.id);
     const popupsForRow = starPopups.filter((p) => p.targetId === item.id);
 
@@ -805,9 +889,9 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
     const assignee = members.find((m) => m.user_id === practice.assigned_to)?.profile?.full_name;
     const completer =
       practice.completed_by === practicesCurrentUserId
-        ? 'you'
+        ? t('you')
         : members.find((m) => m.user_id === practice.completed_by)?.profile?.full_name;
-    const meta = buildPracticeMeta(practice, assignee, completer);
+    const meta = buildPracticeMeta(practice, assignee, completer, t, language);
     const isDazzling = dazzlingIds.has(practice.id);
     const popupsForRow = starPopups.filter((p) => p.targetId === practice.id);
 
@@ -851,8 +935,8 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
     const done = isKidChoreDoneNow(chore);
     const assignee = members.find((m) => m.user_id === chore.assigned_to)?.profile?.full_name;
     const completer =
-      chore.completed_by === choresCurrentUserId ? 'you' : members.find((m) => m.user_id === chore.completed_by)?.profile?.full_name;
-    const meta = buildChoreMeta(chore, assignee, completer);
+      chore.completed_by === choresCurrentUserId ? t('you') : members.find((m) => m.user_id === chore.completed_by)?.profile?.full_name;
+    const meta = buildChoreMeta(chore, assignee, completer, t, language);
     const isDazzling = dazzlingIds.has(chore.id);
     const popupsForRow = starPopups.filter((p) => p.targetId === chore.id);
 
@@ -894,17 +978,17 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
       <Animated.View layout={LinearTransition.duration(200)}>
         <ThemedView type="background" style={styles.composer}>
           <View style={styles.editingRow}>
-            <ThemedText type="smallBold">{editingSchoolId ? 'Edit item' : 'New school item'}</ThemedText>
+            <ThemedText type="smallBold">{editingSchoolId ? t('kidsEditSchoolItemHeader') : t('kidsNewSchoolItemHeader')}</ThemedText>
             <Pressable onPress={resetSchoolForm} hitSlop={8}>
               <ThemedText type="small" themeColor="accent">
-                Cancel
+                {t('cancel')}
               </ThemedText>
             </Pressable>
           </View>
 
           <TextInput
             style={[styles.input, { color: theme.text }]}
-            placeholder="e.g. Fractions worksheet, Ch. 4 test…"
+            placeholder={t('kidsSchoolTitlePlaceholder')}
             placeholderTextColor={theme.textSecondary}
             value={schoolTitle}
             onChangeText={setSchoolTitle}
@@ -914,13 +998,13 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
           />
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
-            {SCHOOL_ITEM_TYPES.map((t) => (
+            {SCHOOL_ITEM_TYPES.map((type) => (
               <Pressable
-                key={t.value}
-                onPress={() => setSchoolType(t.value)}
-                style={[styles.pill, { backgroundColor: theme.backgroundSelected }, schoolType === t.value && { backgroundColor: theme.accent }]}>
-                <ThemedText type="small" themeColor={schoolType === t.value ? 'background' : 'textSecondary'}>
-                  {t.emoji} {t.label}
+                key={type.value}
+                onPress={() => setSchoolType(type.value)}
+                style={[styles.pill, { backgroundColor: theme.backgroundSelected }, schoolType === type.value && { backgroundColor: theme.accent }]}>
+                <ThemedText type="small" themeColor={schoolType === type.value ? 'background' : 'textSecondary'}>
+                  {type.emoji} {schoolItemTypeLabel(type.value, language)}
                 </ThemedText>
               </Pressable>
             ))}
@@ -928,7 +1012,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
 
           <TextInput
             style={[styles.input, { color: theme.text }]}
-            placeholder="Subject (optional)"
+            placeholder={t('kidsSubjectPlaceholder')}
             placeholderTextColor={theme.textSecondary}
             value={schoolSubject}
             onChangeText={setSchoolSubject}
@@ -937,9 +1021,9 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
           />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
             {SUBJECT_QUICKPICKS.map((s) => (
-              <Pressable key={s} onPress={() => setSchoolSubject(s)} style={[styles.pill, { backgroundColor: theme.backgroundSelected }]}>
+              <Pressable key={s} onPress={() => setSchoolSubject(t(s))} style={[styles.pill, { backgroundColor: theme.backgroundSelected }]}>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {s}
+                  {t(s)}
                 </ThemedText>
               </Pressable>
             ))}
@@ -948,11 +1032,11 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
             {DUE_DATE_OPTIONS.map((opt) => (
               <Pressable
-                key={opt.label}
+                key={opt.labelKey}
                 onPress={() => setSchoolDueDate(opt.value)}
                 style={[styles.pill, { backgroundColor: theme.backgroundSelected }, schoolDueDate === opt.value && { backgroundColor: theme.accent }]}>
                 <ThemedText type="small" themeColor={schoolDueDate === opt.value ? 'background' : 'textSecondary'}>
-                  {opt.label}
+                  {t(opt.labelKey)}
                 </ThemedText>
               </Pressable>
             ))}
@@ -961,7 +1045,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
           {members.length > 1 && (
             <View style={styles.assigneeRow}>
               <ThemedText type="small" themeColor="textSecondary">
-                Assign to
+                {t('assignTo')}
               </ThemedText>
               <View style={styles.assigneeAvatars}>
                 {members.map((m) => (
@@ -987,7 +1071,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
             disabled={!schoolTitle.trim() || schoolSubmitting}
             onPress={handleSchoolSubmit}>
             <ThemedText type="smallBold" themeColor="background">
-              {editingSchoolId ? 'Save changes' : 'Add item'}
+              {editingSchoolId ? t('saveChanges') : t('kidsAddItemButton')}
             </ThemedText>
           </Pressable>
         </ThemedView>
@@ -1000,17 +1084,17 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
       <Animated.View layout={LinearTransition.duration(200)}>
         <ThemedView type="background" style={styles.composer}>
           <View style={styles.editingRow}>
-            <ThemedText type="smallBold">{editingPracticeId ? 'Edit activity' : 'New activity'}</ThemedText>
+            <ThemedText type="smallBold">{editingPracticeId ? t('kidsEditActivityHeader') : t('kidsNewActivityHeader')}</ThemedText>
             <Pressable onPress={resetPracticeForm} hitSlop={8}>
               <ThemedText type="small" themeColor="accent">
-                Cancel
+                {t('cancel')}
               </ThemedText>
             </Pressable>
           </View>
 
           <TextInput
             style={[styles.input, { color: theme.text }]}
-            placeholder="e.g. Soccer practice, Piano lesson…"
+            placeholder={t('kidsActivityTitlePlaceholder')}
             placeholderTextColor={theme.textSecondary}
             value={practiceTitle}
             onChangeText={setPracticeTitle}
@@ -1021,9 +1105,9 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
             {ACTIVITY_QUICKPICKS.map((a) => (
-              <Pressable key={a} onPress={() => setPracticeTitle(a)} style={[styles.pill, { backgroundColor: theme.backgroundSelected }]}>
+              <Pressable key={a} onPress={() => setPracticeTitle(t(a))} style={[styles.pill, { backgroundColor: theme.backgroundSelected }]}>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {a}
+                  {t(a)}
                 </ThemedText>
               </Pressable>
             ))}
@@ -1040,7 +1124,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
                   (mode === 'recurring') === practiceIsRecurring && { backgroundColor: theme.accent },
                 ]}>
                 <ThemedText type="small" themeColor={(mode === 'recurring') === practiceIsRecurring ? 'background' : 'textSecondary'}>
-                  {mode === 'recurring' ? 'Recurring weekly' : 'One-time event'}
+                  {mode === 'recurring' ? t('recurringWeekly') : t('oneTimeEvent')}
                 </ThemedText>
               </Pressable>
             ))}
@@ -1054,7 +1138,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
                   onPress={() => setPracticeDayOfWeek(i)}
                   style={[styles.pill, { backgroundColor: theme.backgroundSelected }, practiceDayOfWeek === i && { backgroundColor: theme.accent }]}>
                   <ThemedText type="small" themeColor={practiceDayOfWeek === i ? 'background' : 'textSecondary'}>
-                    {WEEKDAY_SHORT[i]}
+                    {t(WEEKDAY_SHORT_KEYS[i])}
                   </ThemedText>
                 </Pressable>
               ))}
@@ -1063,7 +1147,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
               {EVENT_DATE_OPTIONS.map((opt) => (
                 <Pressable
-                  key={opt.label}
+                  key={opt.labelKey}
                   onPress={() => setPracticeEventDate(opt.value)}
                   style={[
                     styles.pill,
@@ -1071,7 +1155,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
                     practiceEventDate === opt.value && { backgroundColor: theme.accent },
                   ]}>
                   <ThemedText type="small" themeColor={practiceEventDate === opt.value ? 'background' : 'textSecondary'}>
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </ThemedText>
                 </Pressable>
               ))}
@@ -1081,14 +1165,14 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
           <View style={styles.timeRow}>
             <TextInput
               style={[styles.input, styles.timeInput, { color: theme.text, backgroundColor: theme.backgroundSelected }]}
-              placeholder="Start (e.g. 4:00 PM)"
+              placeholder={t('kidsStartTimePlaceholder')}
               placeholderTextColor={theme.textSecondary}
               value={practiceStartTime}
               onChangeText={setPracticeStartTime}
             />
             <TextInput
               style={[styles.input, styles.timeInput, { color: theme.text, backgroundColor: theme.backgroundSelected }]}
-              placeholder="End (optional)"
+              placeholder={t('kidsEndTimePlaceholder')}
               placeholderTextColor={theme.textSecondary}
               value={practiceEndTime}
               onChangeText={setPracticeEndTime}
@@ -1097,7 +1181,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
 
           <TextInput
             style={[styles.input, { color: theme.text }]}
-            placeholder="Location (optional)"
+            placeholder={t('kidsLocationPlaceholder')}
             placeholderTextColor={theme.textSecondary}
             value={practiceLocation}
             onChangeText={setPracticeLocation}
@@ -1108,7 +1192,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
           {members.length > 1 && (
             <View style={styles.assigneeRow}>
               <ThemedText type="small" themeColor="textSecondary">
-                Assign to
+                {t('assignTo')}
               </ThemedText>
               <View style={styles.assigneeAvatars}>
                 {members.map((m) => (
@@ -1134,7 +1218,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
             disabled={!practiceTitle.trim() || practiceSubmitting}
             onPress={handlePracticeSubmit}>
             <ThemedText type="smallBold" themeColor="background">
-              {editingPracticeId ? 'Save changes' : 'Add activity'}
+              {editingPracticeId ? t('saveChanges') : t('kidsAddActivityButton')}
             </ThemedText>
           </Pressable>
         </ThemedView>
@@ -1147,17 +1231,17 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
       <Animated.View layout={LinearTransition.duration(200)}>
         <ThemedView type="background" style={styles.composer}>
           <View style={styles.editingRow}>
-            <ThemedText type="smallBold">{editingChoreId ? 'Edit chore' : 'New chore'}</ThemedText>
+            <ThemedText type="smallBold">{editingChoreId ? t('kidsEditChoreHeader') : t('kidsNewChoreHeader')}</ThemedText>
             <Pressable onPress={resetChoreForm} hitSlop={8}>
               <ThemedText type="small" themeColor="accent">
-                Cancel
+                {t('cancel')}
               </ThemedText>
             </Pressable>
           </View>
 
           <TextInput
             style={[styles.input, { color: theme.text }]}
-            placeholder="e.g. Make bed, Feed the dog…"
+            placeholder={t('kidsChoreTitlePlaceholder')}
             placeholderTextColor={theme.textSecondary}
             value={choreTitle}
             onChangeText={setChoreTitle}
@@ -1169,9 +1253,9 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
           {!editingChoreId && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
               {CHORE_QUICKPICKS.map((c) => (
-                <Pressable key={c} onPress={() => setChoreTitle(c)} style={[styles.pill, { backgroundColor: theme.backgroundSelected }]}>
+                <Pressable key={c} onPress={() => setChoreTitle(t(c))} style={[styles.pill, { backgroundColor: theme.backgroundSelected }]}>
                   <ThemedText type="small" themeColor="textSecondary">
-                    {c}
+                    {t(c)}
                   </ThemedText>
                 </Pressable>
               ))}
@@ -1188,7 +1272,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
                 }}
                 style={[styles.pill, { backgroundColor: theme.backgroundSelected }, choreFrequency === f.value && { backgroundColor: theme.accent }]}>
                 <ThemedText type="small" themeColor={choreFrequency === f.value ? 'background' : 'textSecondary'}>
-                  {f.label}
+                  {t(f.labelKey)}
                 </ThemedText>
               </Pressable>
             ))}
@@ -1198,11 +1282,11 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
               {DUE_DATE_OPTIONS.map((opt) => (
                 <Pressable
-                  key={opt.label}
+                  key={opt.labelKey}
                   onPress={() => setChoreDueDate(opt.value)}
                   style={[styles.pill, { backgroundColor: theme.backgroundSelected }, choreDueDate === opt.value && { backgroundColor: theme.accent }]}>
                   <ThemedText type="small" themeColor={choreDueDate === opt.value ? 'background' : 'textSecondary'}>
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </ThemedText>
                 </Pressable>
               ))}
@@ -1212,7 +1296,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
           {members.length > 1 && (
             <View style={styles.assigneeRow}>
               <ThemedText type="small" themeColor="textSecondary">
-                Assign to
+                {t('assignTo')}
               </ThemedText>
               <View style={styles.assigneeAvatars}>
                 {members.map((m) => (
@@ -1238,7 +1322,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
             disabled={!choreTitle.trim() || choreSubmitting}
             onPress={handleChoreSubmit}>
             <ThemedText type="smallBold" themeColor="background">
-              {editingChoreId ? 'Save changes' : 'Add chore'}
+              {editingChoreId ? t('saveChanges') : t('kidsAddChoreButton')}
             </ThemedText>
           </Pressable>
         </ThemedView>
@@ -1259,7 +1343,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
     const choresForChild = choresAllForChild
       .filter((c) => !(c.frequency === 'once' && c.is_done) || dazzlingIds.has(c.id))
       .filter((c) => !showMineOnly || c.assigned_to === currentUserId);
-    const age = formatChildAge(child.birth_date);
+    const age = formatChildAge(child.birth_date, new Date(), language);
     const caption = [age].filter(Boolean).join(' · ');
 
     return (
@@ -1279,7 +1363,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
               </ThemedText>
             ) : null}
             <ThemedText type="small" style={{ color: theme.accent }}>
-              ⭐ {child.stars} star{child.stars === 1 ? '' : 's'}
+              {child.stars === 1 ? t('kidsStarsCountOne') : t('kidsStarsCountOther', { count: child.stars })}
             </ThemedText>
           </Pressable>
           <Pressable onPress={() => confirmDeleteChild(child)} hitSlop={8}>
@@ -1305,17 +1389,17 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
 
         <View style={styles.subsection}>
           <ThemedText type="small" themeColor="textSecondary" style={styles.subsectionHeader}>
-            SCHOOL
+            {t('kidsSectionSchool')}
           </ThemedText>
           {schoolForChild.length > 0 ? (
             <View style={styles.itemList}>{schoolForChild.map(renderSchoolRow)}</View>
           ) : (
             <ThemedText type="small" themeColor="textSecondary" style={styles.childEmptyText}>
               {schoolAllForChild.length === 0
-                ? `No school items yet for ${child.name}.`
+                ? t('kidsEmptyNoSchoolItems', { name: child.name })
                 : showMineOnly
-                  ? `No items assigned to you for ${child.name}.`
-                  : `${child.name} is all caught up!`}
+                  ? t('kidsEmptyNoSchoolItemsAssigned', { name: child.name })
+                  : t('kidsEmptyAllCaughtUp', { name: child.name })}
             </ThemedText>
           )}
           {schoolComposerChildId === child.id ? (
@@ -1323,7 +1407,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
           ) : (
             <Pressable onPress={() => openSchoolComposer(child.id)} style={styles.addLink} hitSlop={8}>
               <ThemedText type="small" themeColor="accent">
-                + Add school item
+                {t('kidsAddSchoolItemLink')}
               </ThemedText>
             </Pressable>
           )}
@@ -1331,17 +1415,17 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
 
         <View style={styles.subsection}>
           <ThemedText type="small" themeColor="textSecondary" style={styles.subsectionHeader}>
-            ACTIVITIES
+            {t('kidsSectionActivities')}
           </ThemedText>
           {practicesForChild.length > 0 ? (
             <View style={styles.itemList}>{practicesForChild.map(renderPracticeRow)}</View>
           ) : (
             <ThemedText type="small" themeColor="textSecondary" style={styles.childEmptyText}>
               {practicesAllForChild.length === 0
-                ? `No activities yet for ${child.name}.`
+                ? t('kidsEmptyNoActivities', { name: child.name })
                 : showMineOnly
-                  ? `No activities assigned to you for ${child.name}.`
-                  : `${child.name} is all caught up!`}
+                  ? t('kidsEmptyNoActivitiesAssigned', { name: child.name })
+                  : t('kidsEmptyAllCaughtUp', { name: child.name })}
             </ThemedText>
           )}
           {practiceComposerChildId === child.id ? (
@@ -1349,7 +1433,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
           ) : (
             <Pressable onPress={() => openPracticeComposer(child.id)} style={styles.addLink} hitSlop={8}>
               <ThemedText type="small" themeColor="accent">
-                + Add activity or event
+                {t('kidsAddActivityLink')}
               </ThemedText>
             </Pressable>
           )}
@@ -1357,17 +1441,17 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
 
         <View style={styles.subsection}>
           <ThemedText type="small" themeColor="textSecondary" style={styles.subsectionHeader}>
-            CHORES
+            {t('kidsSectionChores')}
           </ThemedText>
           {choresForChild.length > 0 ? (
             <View style={styles.itemList}>{choresForChild.map(renderChoreRow)}</View>
           ) : (
             <ThemedText type="small" themeColor="textSecondary" style={styles.childEmptyText}>
               {choresAllForChild.length === 0
-                ? `No chores yet for ${child.name}.`
+                ? t('kidsEmptyNoChores', { name: child.name })
                 : showMineOnly
-                  ? `No chores assigned to you for ${child.name}.`
-                  : `${child.name} is all caught up!`}
+                  ? t('kidsEmptyNoChoresAssigned', { name: child.name })
+                  : t('kidsEmptyAllCaughtUp', { name: child.name })}
             </ThemedText>
           )}
           {choreComposerChildId === child.id ? (
@@ -1375,7 +1459,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
           ) : (
             <Pressable onPress={() => openChoreComposer(child.id)} style={styles.addLink} hitSlop={8}>
               <ThemedText type="small" themeColor="accent">
-                + Add chore
+                {t('kidsAddChoreLink')}
               </ThemedText>
             </Pressable>
           )}
@@ -1390,7 +1474,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
     <View style={styles.container}>
       <KidsStarBackground />
       <View style={styles.header}>
-        <BackButton label="Home" onPress={onBack} />
+        <BackButton label={t('home')} onPress={onBack} />
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
@@ -1400,7 +1484,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
             onPress={() => setView(v)}
             style={[styles.viewPill, { backgroundColor: theme.backgroundSelected }, view === v && { backgroundColor: theme.accent }]}>
             <ThemedText type="smallBold" themeColor={view === v ? 'background' : 'textSecondary'}>
-              {v === 'list' ? 'List' : 'Calendar'}
+              {v === 'list' ? t('kidsViewList') : t('kidsViewCalendar')}
             </ThemedText>
           </Pressable>
         ))}
@@ -1411,10 +1495,10 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
           <ThemedView type="backgroundElement" style={styles.addCard}>
             {editingChildId && (
               <View style={styles.editingRow}>
-                <ThemedText type="smallBold">Edit child</ThemedText>
+                <ThemedText type="smallBold">{t('kidsEditChildHeader')}</ThemedText>
                 <Pressable onPress={resetChildForm} hitSlop={8}>
                   <ThemedText type="small" themeColor="accent">
-                    Cancel
+                    {t('cancel')}
                   </ThemedText>
                 </Pressable>
               </View>
@@ -1435,7 +1519,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
                     {editingChild.avatar_url && (
                       <Pressable onPress={() => handleRemoveAvatar(editingChild)} hitSlop={8}>
                         <ThemedText type="small" themeColor="accent">
-                          Remove photo
+                          {t('actionRemovePhoto')}
                         </ThemedText>
                       </Pressable>
                     )}
@@ -1445,7 +1529,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
 
             <TextInput
               style={[styles.input, { color: theme.text }]}
-              placeholder="Add a child…"
+              placeholder={t('kidsAddChildPlaceholder')}
               placeholderTextColor={theme.textSecondary}
               value={childName}
               onChangeText={setChildName}
@@ -1459,7 +1543,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
               <>
                 <TextInput
                   style={[styles.input, { color: theme.text }]}
-                  placeholder="Age in years (optional)"
+                  placeholder={t('ageYearsPlaceholder')}
                   placeholderTextColor={theme.textSecondary}
                   value={childAgeYears}
                   onChangeText={(text) => setChildAgeYears(text.replace(/[^0-9]/g, ''))}
@@ -1471,7 +1555,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
 
                 <TextInput
                   style={[styles.input, styles.notesInput, { color: theme.text, backgroundColor: theme.backgroundSelected }]}
-                  placeholder="Notes (optional)"
+                  placeholder={t('kidsNotesPlaceholder')}
                   placeholderTextColor={theme.textSecondary}
                   value={childNotes}
                   onChangeText={setChildNotes}
@@ -1482,7 +1566,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
 
                 <TextInput
                   style={[styles.input, styles.notesInput, styles.emergencyInput, { color: theme.text }]}
-                  placeholder="🚨 Emergency info — allergies, doctor, emergency contact (optional)"
+                  placeholder={t('kidsEmergencyInfoPlaceholder')}
                   placeholderTextColor={theme.textSecondary}
                   value={childEmergencyInfo}
                   onChangeText={setChildEmergencyInfo}
@@ -1496,7 +1580,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
                   disabled={!childName.trim() || childSubmitting}
                   onPress={handleChildSubmit}>
                   <ThemedText type="smallBold" themeColor="background">
-                    {editingChildId ? 'Save changes' : 'Add child'}
+                    {editingChildId ? t('saveChanges') : t('kidsAddChildButton')}
                   </ThemedText>
                 </Pressable>
               </>
@@ -1517,7 +1601,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
                 (f === 'mine') === showMineOnly && { backgroundColor: theme.accent },
               ]}>
               <ThemedText type="small" themeColor={(f === 'mine') === showMineOnly ? 'background' : 'textSecondary'}>
-                {f === 'all' ? 'Everyone' : 'Assigned to me'}
+                {f === 'all' ? t('kidsFilterEveryone') : t('kidsFilterAssignedToMe')}
               </ThemedText>
             </Pressable>
           ))}
@@ -1531,7 +1615,7 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
           <View style={styles.emptyState}>
             <KidsIcon color={theme.backgroundSelected} size={40} />
             <ThemedText themeColor="textSecondary" style={styles.emptyText}>
-              No children yet — add one above to start tracking school, practices, and events.
+              {t('kidsEmptyStateMessage')}
             </ThemedText>
           </View>
         )}
@@ -1562,15 +1646,14 @@ export function KidsSection({ onBack }: { onBack: () => void }) {
 
             <ThemedView type="backgroundElement" style={styles.agendaCard}>
               <ThemedText type="smallBold" style={styles.subsectionHeader}>
-                {new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, {
-                  weekday: 'long',
-                  month: 'short',
-                  day: 'numeric',
-                })}
+                {(() => {
+                  const date = new Date(`${selectedDate}T00:00:00`);
+                  return `${t(WEEKDAY_FULL_KEYS[date.getDay()])}, ${formatMonthDay(date, language)}`;
+                })()}
               </ThemedText>
               {selectedDayAgenda.length === 0 ? (
                 <ThemedText type="small" themeColor="textSecondary">
-                  Nothing scheduled.
+                  {t('kidsAgendaNothingScheduled')}
                 </ThemedText>
               ) : (
                 selectedDayAgenda.map((entry) => (
@@ -1593,7 +1676,15 @@ const styles = StyleSheet.create({
   addCard: { borderRadius: Spacing.four, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, gap: Spacing.two },
   editingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   input: { fontSize: 16, paddingVertical: Spacing.one },
-  pillRow: { flexGrow: 0 },
+  // flexShrink: 1 + minWidth: 0 — RN defaults flexShrink to 0 for a plain
+  // View/ScrollView (unlike raw CSS, which defaults to 1), and web's
+  // min-width:auto blocks shrinking even once flexShrink is set — the
+  // same two-part gotcha documented throughout this app. Without both,
+  // a pill row whose content is wider than its card (easy to hit once
+  // Icelandic labels run longer than the English originals, e.g. the
+  // chore quick-picks) overflows the card's rounded edge and clips the
+  // last pill instead of scrolling to it.
+  pillRow: { flexGrow: 0, flexShrink: 1, minWidth: 0 },
   pill: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.one, borderRadius: 999, marginRight: Spacing.two },
   viewPill: { paddingHorizontal: Spacing.four, paddingVertical: Spacing.two, borderRadius: 999, marginRight: Spacing.two },
   addButton: { alignItems: 'center', paddingVertical: Spacing.two, borderRadius: Spacing.two, marginTop: Spacing.one },
@@ -1609,7 +1700,10 @@ const styles = StyleSheet.create({
   childrenColumn: { gap: Spacing.three },
   childCard: { borderRadius: Spacing.four, padding: Spacing.three, gap: Spacing.three },
   childHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.three, justifyContent: 'space-between' },
-  childTitleWrapper: { flex: 1, gap: Spacing.half },
+  // minWidth: 0 — same web flexbox fix as pillRow/itemTextWrapper above:
+  // without it, a long child name won't shrink to wrap and instead
+  // overflows past the card's edge.
+  childTitleWrapper: { flex: 1, minWidth: 0, gap: Spacing.half },
   childName: { fontWeight: '700' },
   avatarWrapper: { position: 'relative' },
   avatarEditRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
@@ -1640,7 +1734,11 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   checkboxSlot: { position: 'relative' },
-  itemTextWrapper: { flex: 1, gap: Spacing.half },
+  // minWidth: 0 — same web flexbox fix as pillRow above: without it, a
+  // long title/meta line (e.g. a long chore title next to its frequency
+  // caption) won't shrink to wrap inside the row and instead overflows
+  // past the card's edge (this was the "test2 — Einu sinni" row overflow).
+  itemTextWrapper: { flex: 1, minWidth: 0, gap: Spacing.half },
   doneText: { textDecorationLine: 'line-through' },
   deleteIcon: { fontSize: 24, lineHeight: 24, paddingHorizontal: Spacing.one },
   timeRow: { flexDirection: 'row', gap: Spacing.two },

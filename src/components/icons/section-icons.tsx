@@ -35,6 +35,20 @@ export function FinancesIcon({ color, size = 24 }: SectionIconProps) {
   );
 }
 
+/** A notepad with lines of text — notes. */
+export function NotesIcon({ color, size = 24 }: SectionIconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M5 3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5Zm2 5h10v2H7V8Zm0 4h10v2H7v-2Zm0 4h6v2H7v-2Z"
+        fill={color}
+      />
+    </Svg>
+  );
+}
+
 /** A star — kids' activities. */
 export function KidsIcon({ color, size = 24 }: SectionIconProps) {
   return (

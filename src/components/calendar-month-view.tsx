@@ -5,6 +5,7 @@ import { NavArrowButton } from '@/components/nav-arrow-button';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation, type TranslationKey } from '@/hooks/use-language';
 import { toLocalISODate } from '@/lib/practice-format';
 
 export type CalendarMarker = { color: string };
@@ -19,10 +20,20 @@ export type CalendarMonthViewProps = {
   onSelectDate: (date: string) => void;
 };
 
-const WEEKDAY_SHORT = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+// Sunday-first, matching the grid's column order (leadingBlanks below is
+// firstOfMonth.getDay(), 0 = Sunday).
+const WEEKDAY_INITIAL_KEYS: TranslationKey[] = [
+  'weekdayInitialSun',
+  'weekdayInitialMon',
+  'weekdayInitialTue',
+  'weekdayInitialWed',
+  'weekdayInitialThu',
+  'weekdayInitialFri',
+  'weekdayInitialSat',
+];
+const MONTH_NAME_KEYS: TranslationKey[] = [
+  'monthJanuary', 'monthFebruary', 'monthMarch', 'monthApril', 'monthMay', 'monthJune',
+  'monthJuly', 'monthAugust', 'monthSeptember', 'monthOctober', 'monthNovember', 'monthDecember',
 ];
 
 /** A lightweight, hand-rolled month grid — no external calendar
@@ -32,6 +43,7 @@ const MONTH_NAMES = [
  * creating and editing items still happens through the normal composers. */
 export function CalendarMonthView({ month, onMonthChange, markersByDate, selectedDate, onSelectDate }: CalendarMonthViewProps) {
   const theme = useTheme();
+  const t = useTranslation();
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
 
@@ -57,15 +69,15 @@ export function CalendarMonthView({ month, onMonthChange, markersByDate, selecte
       <View style={styles.headerRow}>
         <NavArrowButton direction="prev" onPress={() => onMonthChange(new Date(year, monthIndex - 1, 1))} />
         <ThemedText type="smallBold">
-          {MONTH_NAMES[monthIndex]} {year}
+          {t(MONTH_NAME_KEYS[monthIndex])} {year}
         </ThemedText>
         <NavArrowButton direction="next" onPress={() => onMonthChange(new Date(year, monthIndex + 1, 1))} />
       </View>
 
       <View style={styles.weekRow}>
-        {WEEKDAY_SHORT.map((w, i) => (
+        {WEEKDAY_INITIAL_KEYS.map((key, i) => (
           <ThemedText key={i} type="small" themeColor="textSecondary" style={styles.weekdayLabel}>
-            {w}
+            {t(key)}
           </ThemedText>
         ))}
       </View>

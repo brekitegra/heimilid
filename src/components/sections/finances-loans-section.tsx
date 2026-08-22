@@ -8,24 +8,27 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useLoans } from '@/hooks/use-loans';
+import { useLanguage, useTranslation, type TranslationKey } from '@/hooks/use-language';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
 import { formatCurrency } from '@/lib/currency-format';
 import { computeLoanSchedule, computeOverpaymentImpact, computePresentValue } from '@/lib/loan-amortization';
 import { computePaidOffProgress, formatLoanDuration, formatPayoffDate, monthsToYears, yearsToMonths } from '@/lib/loan-format';
-import { parseAmount, parseDecimal } from '@/lib/number-format';
+import { formatAmountInput, parseAmount, parseDecimal, sanitizeNumericInput } from '@/lib/number-format';
 import { exportLoanScheduleAsPdf } from '@/lib/loan-pdf';
 import type { Loan, LoanInput, LoanType, RepaymentType } from '@/types/loan';
 
-const LOAN_TYPES: { value: LoanType; label: string }[] = [
-  { value: 'non_indexed', label: 'Non-indexed' },
-  { value: 'indexed', label: 'Indexed' },
-];
+const LOAN_TYPE_VALUES: LoanType[] = ['non_indexed', 'indexed'];
+const LOAN_TYPE_KEYS: Record<LoanType, TranslationKey> = {
+  non_indexed: 'loansTypeNonIndexed',
+  indexed: 'loansTypeIndexed',
+};
 
-const REPAYMENT_TYPES: { value: RepaymentType; label: string }[] = [
-  { value: 'annuity', label: 'Equal payment' },
-  { value: 'equal_principal', label: 'Equal principal' },
-];
+const REPAYMENT_TYPE_VALUES: RepaymentType[] = ['annuity', 'equal_principal'];
+const REPAYMENT_TYPE_KEYS: Record<RepaymentType, TranslationKey> = {
+  annuity: 'loansRepaymentAnnuity',
+  equal_principal: 'loansRepaymentEqualPrincipal',
+};
 
 const SIDE_BY_SIDE_BREAKPOINT = 700;
 
@@ -90,6 +93,8 @@ function SummaryRow({ label, value, bold, accent }: { label: string; value: stri
 }
 
 export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
+  const t = useTranslation();
+  const { language } = useLanguage();
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const isWideLayout = width >= SIDE_BY_SIDE_BREAKPOINT;
@@ -141,7 +146,7 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
     // as Expenses' income draft — not derivable at render time since the
     // user needs to be able to type over it.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setExtraAmountDraft(activeExtraLoan ? String(activeExtraLoan.extra_monthly_payment) : '');
+    setExtraAmountDraft(activeExtraLoan ? formatAmountInput(String(activeExtraLoan.extra_monthly_payment)) : '');
   }, [activeExtraLoan]);
 
   const extraDraftAmount = parseAmount(extraAmountDraft);
@@ -167,7 +172,7 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
     try {
       await updateLoan(activeExtraLoan, { ...loanToInput(activeExtraLoan), extraMonthlyPayment: extraDraftAmount });
     } catch (err) {
-      showAlert("Couldn't save extra payment", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('loansSaveExtraError'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setSavingExtra(false);
     }
@@ -191,11 +196,11 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
     setName(loan.name);
     setLoanType(loan.loan_type);
     setRepaymentType(loan.repayment_type);
-    setPrincipal(String(loan.principal));
+    setPrincipal(formatAmountInput(String(loan.principal)));
     setInterestRate(String(loan.interest_rate));
     setTermYears(String(monthsToYears(loan.term_months)));
     setAssumedInflationRate(String(loan.assumed_inflation_rate));
-    setOriginalPrincipal(loan.original_principal !== null ? String(loan.original_principal) : '');
+    setOriginalPrincipal(loan.original_principal !== null ? formatAmountInput(String(loan.original_principal)) : '');
     setComposerOpen(true);
   }
 
@@ -226,21 +231,21 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
       }
       resetForm();
     } catch (err) {
-      showAlert(editingId ? "Couldn't save changes" : "Couldn't add loan", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(editingId ? t('financesSaveChangesError') : t('loansAddError'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setSubmitting(false);
     }
   }
 
   function confirmDelete(loan: Loan) {
-    showAlert('Delete loan', `Remove "${loan.name}"?`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('loansDeleteTitle'), t('loansDeleteMessage', { name: loan.name }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('delete'),
         style: 'destructive',
         onPress: () => {
           if (editingId === loan.id) resetForm();
-          deleteLoan(loan).catch((err) => showAlert("Couldn't delete loan", err instanceof Error ? err.message : 'Something went wrong'));
+          deleteLoan(loan).catch((err) => showAlert(t('loansDeleteError'), err instanceof Error ? err.message : t('genericErrorMessage')));
         },
       },
     ]);
@@ -249,9 +254,9 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
   async function handleExportPdf(loan: Loan) {
     setExportingId(loan.id);
     try {
-      await exportLoanScheduleAsPdf(loan);
+      await exportLoanScheduleAsPdf(loan, language);
     } catch (err) {
-      showAlert("Couldn't export PDF", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('loansExportPdfError'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setExportingId(null);
     }
@@ -267,7 +272,16 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
       assumedInflationRate: Number(loan.assumed_inflation_rate),
       extraMonthlyPayment: Number(loan.extra_monthly_payment),
     });
-    const monthlyPayment = schedule.scheduledMonthlyPayment + Number(loan.extra_monthly_payment);
+    const extraMonthlyPayment = Number(loan.extra_monthly_payment);
+    const overpaymentImpact = extraMonthlyPayment > 0 ? computeOverpaymentImpact({
+      principal: Number(loan.principal),
+      interestRate: Number(loan.interest_rate),
+      termMonths: loan.term_months,
+      loanType: loan.loan_type,
+      repaymentType: loan.repayment_type,
+      assumedInflationRate: Number(loan.assumed_inflation_rate),
+      extraMonthlyPayment,
+    }) : null;
     const paidOff = computePaidOffProgress(loan.original_principal, Number(loan.principal));
 
     return (
@@ -285,31 +299,41 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
             <View style={styles.badgeRow}>
               <View style={[styles.badge, { backgroundColor: theme.backgroundSelected }]}>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {LOAN_TYPES.find((t) => t.value === loan.loan_type)?.label}
+                  {t(LOAN_TYPE_KEYS[loan.loan_type])}
                 </ThemedText>
               </View>
               <View style={[styles.badge, { backgroundColor: theme.backgroundSelected }]}>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {REPAYMENT_TYPES.find((t) => t.value === loan.repayment_type)?.label}
+                  {t(REPAYMENT_TYPE_KEYS[loan.repayment_type])}
                 </ThemedText>
               </View>
             </View>
             <View style={styles.loanFigureRow}>
               <ThemedText type="small" themeColor="textSecondary">
-                {formatCurrency(monthlyPayment)}/mo · {formatCurrency(Number(loan.principal))} remaining
+                {formatCurrency(schedule.scheduledMonthlyPayment)}
+                {language === 'is' ? '/mán' : '/mo'} · {formatCurrency(Number(loan.principal))} {language === 'is' ? 'eftir' : 'remaining'}
               </ThemedText>
             </View>
+            {overpaymentImpact && (
+              <ThemedText type="small" themeColor="accent">
+                {t('loansExtraPaymentLine', {
+                  amount: formatCurrency(extraMonthlyPayment),
+                  duration: formatLoanDuration(overpaymentImpact.monthsSaved, language),
+                  interest: formatCurrency(overpaymentImpact.interestSaved),
+                })}
+              </ThemedText>
+            )}
             <ThemedText type="small" themeColor="textSecondary">
-              {formatPayoffDate(loan.as_of_date, schedule.payoffMonths)} ({formatLoanDuration(schedule.payoffMonths)})
+              {formatPayoffDate(loan.as_of_date, schedule.payoffMonths, language)} ({formatLoanDuration(schedule.payoffMonths, language)})
             </ThemedText>
             {paidOff && (
               <ThemedText type="small" themeColor="textSecondary">
-                {formatCurrency(paidOff.paidSoFar)} paid off so far ({Math.round(paidOff.percent)}%)
+                {t('loansSummaryPaidOffSoFar')}: {t('loansPaidSoFarValue', { amount: formatCurrency(paidOff.paidSoFar), percent: String(Math.round(paidOff.percent)) })}
               </ThemedText>
             )}
             {loan.loan_type === 'indexed' && (
               <ThemedText type="small" style={[styles.estimateNote, { color: theme.accent }]}>
-                Estimate based on your {Number(loan.assumed_inflation_rate)}% assumed inflation
+                {t('loansIndexedEstimateNote', { rate: String(Number(loan.assumed_inflation_rate)) })}
               </ThemedText>
             )}
           </Pressable>
@@ -318,7 +342,7 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
               <ActivityIndicator size="small" color={theme.accent} />
             ) : (
               <ThemedText type="small" themeColor="accent">
-                Export payment plan as PDF
+                {t('loansExportPdfButton')}
               </ThemedText>
             )}
           </Pressable>
@@ -332,7 +356,7 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <BackButton label="Finances" onPress={onBack} />
+        <BackButton label={t('financesTitle')} onPress={onBack} />
       </View>
 
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
@@ -341,17 +365,17 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
             <View style={isWideLayout ? styles.formRow : styles.formColumn}>
               <ThemedView type="backgroundElement" style={[styles.addCard, isWideLayout && styles.formCardFlex]}>
                 <View style={styles.editingRow}>
-                  <ThemedText type="smallBold">{editingId ? 'Edit loan' : 'New loan'}</ThemedText>
+                  <ThemedText type="smallBold">{editingId ? t('loansEditTitle') : t('loansNewTitle')}</ThemedText>
                   <Pressable onPress={resetForm} hitSlop={8}>
                     <ThemedText type="small" themeColor="accent">
-                      Cancel
+                      {t('cancel')}
                     </ThemedText>
                   </Pressable>
                 </View>
 
                 <TextInput
                   style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
-                  placeholder="e.g. Home mortgage, Car loan…"
+                  placeholder={t('loansNamePlaceholder')}
                   placeholderTextColor={theme.textSecondary}
                   value={name}
                   onChangeText={setName}
@@ -361,7 +385,7 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
                 <View style={styles.fieldGridRow}>
                   <View style={styles.fieldHalf}>
                     <ThemedText type="small" themeColor="textSecondary">
-                      Loan amount (kr.)
+                      {t('loansAmountLabel')}
                     </ThemedText>
                     <TextInput
                       style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
@@ -369,12 +393,12 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
                       placeholderTextColor={theme.textSecondary}
                       keyboardType="number-pad"
                       value={principal}
-                      onChangeText={setPrincipal}
+                      onChangeText={(v) => setPrincipal(formatAmountInput(v))}
                     />
                   </View>
                   <View style={styles.fieldHalf}>
                     <ThemedText type="small" themeColor="textSecondary">
-                      Term (years)
+                      {t('loansTermLabel')}
                     </ThemedText>
                     <TextInput
                       style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
@@ -382,7 +406,7 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
                       placeholderTextColor={theme.textSecondary}
                       keyboardType="decimal-pad"
                       value={termYears}
-                      onChangeText={setTermYears}
+                      onChangeText={(v) => setTermYears(sanitizeNumericInput(v))}
                     />
                   </View>
                 </View>
@@ -390,7 +414,7 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
                 <View style={styles.fieldGridRow}>
                   <View style={styles.fieldHalf}>
                     <ThemedText type="small" themeColor="textSecondary">
-                      Interest rate (%)
+                      {t('loansInterestRateLabel')}
                     </ThemedText>
                     <TextInput
                       style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
@@ -398,12 +422,12 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
                       placeholderTextColor={theme.textSecondary}
                       keyboardType="decimal-pad"
                       value={interestRate}
-                      onChangeText={setInterestRate}
+                      onChangeText={(v) => setInterestRate(sanitizeNumericInput(v))}
                     />
                   </View>
                   <View style={styles.fieldHalf}>
                     <ThemedText type="small" themeColor="textSecondary">
-                      Inflation assumption (%)
+                      {t('loansInflationAssumptionLabel')}
                     </ThemedText>
                     <TextInput
                       style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
@@ -411,58 +435,56 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
                       placeholderTextColor={theme.textSecondary}
                       keyboardType="decimal-pad"
                       value={assumedInflationRate}
-                      onChangeText={setAssumedInflationRate}
+                      onChangeText={(v) => setAssumedInflationRate(sanitizeNumericInput(v))}
                     />
                   </View>
                 </View>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {loanType === 'indexed'
-                    ? "Drives this loan's CPI-linked balance growth, and its present-value figure."
-                    : "Doesn't affect this loan's payments — only its present-value figure (today's-money cost), for comparing against indexed loans."}
+                  {loanType === 'indexed' ? t('loansIndexedHelpText') : t('loansNonIndexedHelpText')}
                 </ThemedText>
 
                 <ThemedText type="small" themeColor="textSecondary">
-                  Loan type
+                  {t('loansTypeLabel')}
                 </ThemedText>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
-                  {LOAN_TYPES.map((t) => (
+                  {LOAN_TYPE_VALUES.map((typeValue) => (
                     <Pressable
-                      key={t.value}
-                      onPress={() => setLoanType(t.value)}
-                      style={[styles.pill, { backgroundColor: theme.backgroundSelected }, loanType === t.value && { backgroundColor: theme.accent }]}>
-                      <ThemedText type="small" themeColor={loanType === t.value ? 'background' : 'textSecondary'}>
-                        {t.label}
+                      key={typeValue}
+                      onPress={() => setLoanType(typeValue)}
+                      style={[styles.pill, { backgroundColor: theme.backgroundSelected }, loanType === typeValue && { backgroundColor: theme.accent }]}>
+                      <ThemedText type="small" themeColor={loanType === typeValue ? 'background' : 'textSecondary'}>
+                        {t(LOAN_TYPE_KEYS[typeValue])}
                       </ThemedText>
                     </Pressable>
                   ))}
                 </ScrollView>
 
                 <ThemedText type="small" themeColor="textSecondary">
-                  Repayment
+                  {t('loansRepaymentLabel')}
                 </ThemedText>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
-                  {REPAYMENT_TYPES.map((t) => (
+                  {REPAYMENT_TYPE_VALUES.map((typeValue) => (
                     <Pressable
-                      key={t.value}
-                      onPress={() => setRepaymentType(t.value)}
-                      style={[styles.pill, { backgroundColor: theme.backgroundSelected }, repaymentType === t.value && { backgroundColor: theme.accent }]}>
-                      <ThemedText type="small" themeColor={repaymentType === t.value ? 'background' : 'textSecondary'}>
-                        {t.label}
+                      key={typeValue}
+                      onPress={() => setRepaymentType(typeValue)}
+                      style={[styles.pill, { backgroundColor: theme.backgroundSelected }, repaymentType === typeValue && { backgroundColor: theme.accent }]}>
+                      <ThemedText type="small" themeColor={repaymentType === typeValue ? 'background' : 'textSecondary'}>
+                        {t(REPAYMENT_TYPE_KEYS[typeValue])}
                       </ThemedText>
                     </Pressable>
                   ))}
                 </ScrollView>
 
                 <ThemedText type="small" themeColor="textSecondary">
-                  Original loan amount (optional)
+                  {t('loansOriginalAmountLabel')}
                 </ThemedText>
                 <TextInput
                   style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
-                  placeholder="What you originally borrowed, to track paydown"
+                  placeholder={t('loansOriginalAmountPlaceholder')}
                   placeholderTextColor={theme.textSecondary}
                   keyboardType="number-pad"
                   value={originalPrincipal}
-                  onChangeText={setOriginalPrincipal}
+                  onChangeText={(v) => setOriginalPrincipal(formatAmountInput(v))}
                 />
 
                 <Pressable
@@ -473,7 +495,7 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
                   disabled={!name.trim() || !principal.trim() || !interestRate.trim() || !termYears.trim() || submitting}
                   onPress={handleSubmit}>
                   <ThemedText type="smallBold" themeColor="background">
-                    {editingId ? 'Save changes' : 'Add loan'}
+                    {editingId ? t('saveChanges') : t('loansAddButton')}
                   </ThemedText>
                 </Pressable>
               </ThemedView>
@@ -481,21 +503,24 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
               {hasValidPreview && (
                 <ThemedView type="backgroundSelected" style={[styles.summaryCard, isWideLayout && styles.formCardFlex]}>
                   <ThemedText type="smallBold" style={styles.summaryHeader}>
-                    SUMMARY
+                    {t('loansSummaryHeader')}
                   </ThemedText>
-                  <SummaryRow label="Total paid" value={formatCurrency(formSchedule.totalPaid)} bold />
-                  <SummaryRow label="Present value (today's money)" value={formatCurrency(formPresentValue)} />
-                  <SummaryRow label="Total interest" value={formatCurrency(formSchedule.totalInterestPaid)} />
-                  <SummaryRow label="Total indexation" value={formatCurrency(formSchedule.totalIndexationAdded)} />
-                  <SummaryRow label="First payment" value={formatCurrency(formSchedule.schedule[0]?.payment ?? 0)} />
-                  <SummaryRow label="Last payment" value={formatCurrency(formSchedule.schedule.at(-1)?.payment ?? 0)} />
-                  <SummaryRow label="Paid off by" value={formatPayoffDate(todayIso(), formSchedule.payoffMonths)} />
+                  <SummaryRow label={t('loansSummaryTotalPaid')} value={formatCurrency(formSchedule.totalPaid)} bold />
+                  <SummaryRow label={t('loansSummaryPresentValue')} value={formatCurrency(formPresentValue)} />
+                  <SummaryRow label={t('loansSummaryTotalInterest')} value={formatCurrency(formSchedule.totalInterestPaid)} />
+                  <SummaryRow label={t('loansSummaryTotalIndexation')} value={formatCurrency(formSchedule.totalIndexationAdded)} />
+                  <SummaryRow label={t('loansSummaryFirstPayment')} value={formatCurrency(formSchedule.schedule[0]?.payment ?? 0)} />
+                  <SummaryRow label={t('loansSummaryLastPayment')} value={formatCurrency(formSchedule.schedule.at(-1)?.payment ?? 0)} />
+                  <SummaryRow label={t('loansSummaryPaidOffBy')} value={formatPayoffDate(todayIso(), formSchedule.payoffMonths, language)} />
                   {formPaidOff && (
-                    <SummaryRow label="Paid off so far" value={`${formatCurrency(formPaidOff.paidSoFar)} (${Math.round(formPaidOff.percent)}%)`} />
+                    <SummaryRow
+                      label={t('loansSummaryPaidOffSoFar')}
+                      value={t('loansPaidSoFarValue', { amount: formatCurrency(formPaidOff.paidSoFar), percent: String(Math.round(formPaidOff.percent)) })}
+                    />
                   )}
                   {loanType === 'indexed' && (
                     <ThemedText type="small" themeColor="textSecondary" style={styles.summaryNote}>
-                      Estimate based on your assumed inflation rate — actual verðtryggð loans are recalculated periodically by your bank and may differ.
+                      {t('loansIndexedSummaryNote')}
                     </ThemedText>
                   )}
                 </ThemedView>
@@ -511,16 +536,16 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
             style={styles.addLink}
             hitSlop={8}>
             <ThemedText type="smallBold" themeColor="accent">
-              + Add loan
+              {t('loansAddLink')}
             </ThemedText>
           </Pressable>
         )}
 
         {loans.length > 0 && activeExtraLoan && (
           <ThemedView type="backgroundElement" style={styles.extraCard}>
-            <ThemedText type="smallBold">EXTRA PAYMENTS</ThemedText>
+            <ThemedText type="smallBold">{t('loansExtraPaymentsHeader')}</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              Pick a loan and see how much sooner extra monthly payments would pay it off.
+              {t('loansExtraPaymentsIntro')}
             </ThemedText>
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
@@ -539,16 +564,16 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
             <View style={styles.extraInputRow}>
               <TextInput
                 style={[styles.input, styles.extraInput, { color: theme.text, backgroundColor: theme.background }]}
-                placeholder="Extra amount (kr./mo)"
+                placeholder={t('loansExtraAmountPlaceholder')}
                 placeholderTextColor={theme.textSecondary}
                 keyboardType="number-pad"
                 value={extraAmountDraft}
-                onChangeText={setExtraAmountDraft}
+                onChangeText={(v) => setExtraAmountDraft(formatAmountInput(v))}
               />
               {extraDirty && (
                 <Pressable onPress={handleSaveExtra} disabled={savingExtra} hitSlop={8}>
                   <ThemedText type="smallBold" themeColor="accent">
-                    {savingExtra ? 'Saving…' : 'Save'}
+                    {savingExtra ? t('saving') : t('save')}
                   </ThemedText>
                 </Pressable>
               )}
@@ -556,8 +581,13 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
 
             {extraDraftAmount > 0 && extraPreviewImpact && extraPreviewSchedule && (
               <ThemedText type="small" themeColor="accent">
-                Paying an extra {formatCurrency(extraDraftAmount)}/mo on {activeExtraLoan.name} would save {formatLoanDuration(extraPreviewImpact.monthsSaved)} and{' '}
-                {formatCurrency(extraPreviewImpact.interestSaved)} in interest — {formatPayoffDate(activeExtraLoan.as_of_date, extraPreviewSchedule.payoffMonths)}.
+                {t('loansExtraPaymentImpact', {
+                  amount: formatCurrency(extraDraftAmount),
+                  name: activeExtraLoan.name,
+                  duration: formatLoanDuration(extraPreviewImpact.monthsSaved, language),
+                  interest: formatCurrency(extraPreviewImpact.interestSaved),
+                  payoffDate: formatPayoffDate(activeExtraLoan.as_of_date, extraPreviewSchedule.payoffMonths, language),
+                })}
               </ThemedText>
             )}
           </ThemedView>
@@ -569,7 +599,7 @@ export function FinancesLoansSection({ onBack }: { onBack: () => void }) {
           <View style={styles.emptyState}>
             <LoansIcon color={theme.backgroundSelected} size={40} />
             <ThemedText themeColor="textSecondary" style={styles.emptyText}>
-              No loans yet — add one above to project its payoff.
+              {t('loansEmptyState')}
             </ThemedText>
           </View>
         )}
@@ -597,7 +627,12 @@ const styles = StyleSheet.create({
   // items — without it, a rendered <input>'s intrinsic size wins over
   // flex-grow and the row overflows instead of splitting evenly.
   fieldHalf: { flex: 1, minWidth: 0, gap: Spacing.half },
-  pillRow: { flexGrow: 0 },
+  // flexShrink: 1 + minWidth: 0 — see kids-section.tsx's identical
+  // pillRow comment (RN's flexShrink defaults to 0 for a plain
+  // ScrollView, and web's min-width:auto blocks shrinking even with
+  // flexShrink set) — without both, a pill row wider than its card
+  // overflows the rounded edge and clips the last pill.
+  pillRow: { flexGrow: 0, flexShrink: 1, minWidth: 0 },
   pill: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.one, borderRadius: 999, marginRight: Spacing.two },
   addButton: { alignItems: 'center', paddingVertical: Spacing.two, borderRadius: Spacing.two, marginTop: Spacing.one },
   addLink: { paddingVertical: Spacing.one },

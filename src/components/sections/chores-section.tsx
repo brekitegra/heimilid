@@ -12,25 +12,27 @@ import { Spacing } from '@/constants/theme';
 import { isChoreDoneNow, useChores } from '@/hooks/use-chores';
 import { useDelayedBlur } from '@/hooks/use-delayed-blur';
 import { useHousehold } from '@/hooks/use-household';
+import { useLanguage, useTranslation, type Language, type TranslationKey } from '@/hooks/use-language';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
 import { formatDueDate, formatLastDone, formatStreak, isoDateInDays } from '@/lib/chore-format';
+import { isSameName } from '@/lib/duplicate-check';
 import { XpPopup } from '@/components/xp-popup';
 import type { Chore, ChoreFrequency, ChoreInput } from '@/types/chore';
 
-const FREQUENCIES: { value: ChoreFrequency; label: string }[] = [
-  { value: 'once', label: 'Once' },
-  { value: 'daily', label: 'Daily' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'yearly', label: 'Yearly' },
+const FREQUENCIES: { value: ChoreFrequency; labelKey: TranslationKey }[] = [
+  { value: 'once', labelKey: 'frequencyOnce' },
+  { value: 'daily', labelKey: 'frequencyDaily' },
+  { value: 'weekly', labelKey: 'frequencyWeekly' },
+  { value: 'monthly', labelKey: 'frequencyMonthly' },
+  { value: 'yearly', labelKey: 'frequencyYearly' },
 ];
 
-const DUE_DATE_OPTIONS: { label: string; value: string | null }[] = [
-  { label: 'No date', value: null },
-  { label: 'Today', value: isoDateInDays(0) },
-  { label: 'Tomorrow', value: isoDateInDays(1) },
-  { label: 'In a week', value: isoDateInDays(7) },
+const DUE_DATE_OPTIONS: { labelKey: TranslationKey; value: string | null }[] = [
+  { labelKey: 'dueDateNone', value: null },
+  { labelKey: 'dueDateToday', value: isoDateInDays(0) },
+  { labelKey: 'dueDateTomorrow', value: isoDateInDays(1) },
+  { labelKey: 'dueDateInAWeek', value: isoDateInDays(7) },
 ];
 
 const OVERDUE_COLOR = '#e5484d';
@@ -51,34 +53,43 @@ function initials(name: string | null | undefined) {
  * overdue color instead of the usual muted secondary tone. */
 type MetaPart = { text: string; warn?: boolean };
 
-function buildMeta(chore: Chore, assigneeName: string | null | undefined, completerName: string | null | undefined): MetaPart[] {
-  const parts: MetaPart[] = [{ text: FREQUENCIES.find((f) => f.value === chore.frequency)?.label ?? '' }];
+function buildMeta(
+  chore: Chore,
+  assigneeName: string | null | undefined,
+  completerName: string | null | undefined,
+  t: ReturnType<typeof useTranslation>,
+  language: Language
+): MetaPart[] {
+  const frequencyKey = FREQUENCIES.find((f) => f.value === chore.frequency)?.labelKey;
+  const parts: MetaPart[] = [{ text: frequencyKey ? t(frequencyKey) : '' }];
   if (assigneeName) parts.push({ text: assigneeName });
 
   const done = isChoreDoneNow(chore);
 
   if (chore.frequency === 'once') {
     if (!chore.is_done) {
-      const due = formatDueDate(chore.due_date);
+      const due = formatDueDate(chore.due_date, new Date(), language);
       if (due) parts.push({ text: due.text, warn: due.overdue });
     }
   } else {
-    const streak = formatStreak(chore);
+    const streak = formatStreak(chore, language);
     if (streak) parts.push({ text: streak });
     if (!done) {
-      const lastDone = formatLastDone(chore);
+      const lastDone = formatLastDone(chore, new Date(), language);
       if (lastDone) parts.push({ text: lastDone });
     }
   }
 
   // Who actually checked the box — not the assignee, since anyone can pitch
   // in and complete something assigned to someone else.
-  if (done && completerName) parts.push({ text: `Completed by ${completerName}` });
+  if (done && completerName) parts.push({ text: t('choresCompletedBy', { name: completerName }) });
 
   return parts;
 }
 
 export function ChoresSection({ onBack }: { onBack: () => void }) {
+  const t = useTranslation();
+  const { language } = useLanguage();
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const isWideLayout = width >= SIDE_BY_SIDE_BREAKPOINT;
@@ -132,6 +143,11 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
 
   async function handleSubmit() {
     if (!title.trim()) return;
+    const duplicate = chores.find((c) => c.id !== editingId && !isChoreDoneNow(c) && isSameName(c.title, title));
+    if (duplicate) {
+      showAlert(t('choresDuplicateTitle'), t('choresDuplicateMessage', { title: duplicate.title }));
+      return;
+    }
     const input: ChoreInput = { title, frequency, assignedTo, dueDate };
     setSubmitting(true);
     try {
@@ -144,8 +160,8 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
       resetForm();
     } catch (err) {
       showAlert(
-        editingId ? "Couldn't save changes" : "Couldn't add chore",
-        err instanceof Error ? err.message : 'Something went wrong'
+        editingId ? t('choresSaveErrorTitle') : t('choresAddErrorTitle'),
+        err instanceof Error ? err.message : t('genericErrorMessage')
       );
     } finally {
       setSubmitting(false);
@@ -176,7 +192,7 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
         setXpPopups((prev) => [...prev, { id: popupId, choreId: chore.id, amount: xpDelta }]);
       }
     } catch (err) {
-      showAlert("Couldn't update chore", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('choresUpdateErrorTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
@@ -185,15 +201,15 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
   }
 
   function confirmDelete(chore: Chore) {
-    showAlert('Delete chore', `Remove "${chore.title}"?`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('choresDeleteConfirmTitle'), t('choresDeleteConfirmMessage', { title: chore.title }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('delete'),
         style: 'destructive',
         onPress: () => {
           if (editingId === chore.id) resetForm();
           deleteChore(chore).catch((err) => {
-            showAlert("Couldn't delete chore", err instanceof Error ? err.message : 'Something went wrong');
+            showAlert(t('choresDeleteErrorTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
           });
         },
       },
@@ -244,9 +260,9 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
     const assignee = members.find((m) => m.user_id === chore.assigned_to)?.profile?.full_name;
     const completerName =
       chore.completed_by === currentUserId
-        ? 'you'
+        ? t('you')
         : members.find((m) => m.user_id === chore.completed_by)?.profile?.full_name;
-    const meta = buildMeta(chore, assignee, completerName);
+    const meta = buildMeta(chore, assignee, completerName, t, language);
     const isDazzling = dazzlingIds.has(chore.id);
     const popupsForRow = xpPopups.filter((p) => p.choreId === chore.id);
 
@@ -289,10 +305,10 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <BackButton label="Home" onPress={onBack} />
+        <BackButton label={t('home')} onPress={onBack} />
         {visibleChores.length > 0 && (
           <ThemedText type="small" themeColor="textSecondary">
-            {visibleDoneCount} of {visibleChores.length} done
+            {t('choresProgressCaption', { done: visibleDoneCount, total: visibleChores.length })}
           </ThemedText>
         )}
       </View>
@@ -301,10 +317,10 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
         <ThemedView type="backgroundElement" style={styles.addCard}>
           {editingId && (
             <View style={styles.editingRow}>
-              <ThemedText type="smallBold">Edit chore</ThemedText>
+              <ThemedText type="smallBold">{t('choresEditHeading')}</ThemedText>
               <Pressable onPress={resetForm} hitSlop={8}>
                 <ThemedText type="small" themeColor="accent">
-                  Cancel
+                  {t('cancel')}
                 </ThemedText>
               </Pressable>
             </View>
@@ -312,7 +328,7 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
 
           <TextInput
             style={[styles.input, { color: theme.text }]}
-            placeholder="Add a chore…"
+            placeholder={t('choresAddPlaceholder')}
             placeholderTextColor={theme.textSecondary}
             value={title}
             onChangeText={setTitle}
@@ -328,6 +344,7 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
                 {FREQUENCIES.map((f) => (
                   <Pressable
                     key={f.value}
+                    onPressIn={composerBlur.onFocus}
                     onPress={() => {
                       setFrequency(f.value);
                       if (f.value !== 'once') setDueDate(null);
@@ -338,7 +355,7 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
                       frequency === f.value && { backgroundColor: theme.accent },
                     ]}>
                     <ThemedText type="small" themeColor={frequency === f.value ? 'background' : 'textSecondary'}>
-                      {f.label}
+                      {t(f.labelKey)}
                     </ThemedText>
                   </Pressable>
                 ))}
@@ -348,7 +365,8 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
                   {DUE_DATE_OPTIONS.map((opt) => (
                     <Pressable
-                      key={opt.label}
+                      key={opt.labelKey}
+                      onPressIn={composerBlur.onFocus}
                       onPress={() => setDueDate(opt.value)}
                       style={[
                         styles.pill,
@@ -356,7 +374,7 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
                         dueDate === opt.value && { backgroundColor: theme.accent },
                       ]}>
                       <ThemedText type="small" themeColor={dueDate === opt.value ? 'background' : 'textSecondary'}>
-                        {opt.label}
+                        {t(opt.labelKey)}
                       </ThemedText>
                     </Pressable>
                   ))}
@@ -366,12 +384,13 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
               {members.length > 1 && (
                 <View style={styles.assigneeRow}>
                   <ThemedText type="small" themeColor="textSecondary">
-                    Assign to
+                    {t('assignTo')}
                   </ThemedText>
                   <View style={styles.assigneeAvatars}>
                     {members.map((m) => (
                       <Pressable
                         key={m.user_id}
+                        onPressIn={composerBlur.onFocus}
                         onPress={() => setAssignedTo((prev) => (prev === m.user_id ? null : m.user_id))}
                         style={[
                           styles.avatar,
@@ -392,7 +411,7 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
                 disabled={!title.trim() || submitting}
                 onPress={handleSubmit}>
                 <ThemedText type="smallBold" themeColor="background">
-                  {editingId ? 'Save changes' : 'Add'}
+                  {editingId ? t('saveChanges') : t('add')}
                 </ThemedText>
               </Pressable>
             </>
@@ -412,7 +431,7 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
                 (f === 'mine') === showMineOnly && { backgroundColor: theme.accent },
               ]}>
               <ThemedText type="small" themeColor={(f === 'mine') === showMineOnly ? 'background' : 'textSecondary'}>
-                {f === 'all' ? 'All chores' : 'My chores'}
+                {f === 'all' ? t('allFilter') : t('choresFilterMine')}
               </ThemedText>
             </Pressable>
           ))}
@@ -428,7 +447,7 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
           <View style={styles.emptyState}>
             <ChoresIcon color={theme.backgroundSelected} size={40} />
             <ThemedText themeColor="textSecondary" style={styles.emptyText}>
-              No chores yet — add your first one above.
+              {t('choresEmptyState')}
             </ThemedText>
           </View>
         )}
@@ -437,25 +456,25 @@ export function ChoresSection({ onBack }: { onBack: () => void }) {
           <View style={isWideLayout ? styles.groupsRow : styles.groupsColumn}>
             <View style={[styles.groupCard, isWideLayout && styles.groupCardFlex, { borderColor: theme.backgroundSelected }]}>
               <ThemedText type="small" themeColor="textSecondary" style={styles.groupCardHeader}>
-                RECURRING
+                {t('choresGroupRecurring')}
               </ThemedText>
               {routineChores.length > 0 ? (
                 routineChores.map(renderChoreRow)
               ) : (
                 <ThemedText type="small" themeColor="textSecondary" style={styles.groupEmptyText}>
-                  {showMineOnly ? 'No recurring chores assigned to you' : 'No recurring chores yet'}
+                  {showMineOnly ? t('choresRecurringEmptyMine') : t('choresRecurringEmptyAll')}
                 </ThemedText>
               )}
             </View>
             <View style={[styles.groupCard, isWideLayout && styles.groupCardFlex, { borderColor: theme.backgroundSelected }]}>
               <ThemedText type="small" themeColor="textSecondary" style={styles.groupCardHeader}>
-                ONE-TIME
+                {t('choresGroupOneTime')}
               </ThemedText>
               {oneTimeChores.length > 0 ? (
                 oneTimeChores.map(renderChoreRow)
               ) : (
                 <ThemedText type="small" themeColor="textSecondary" style={styles.groupEmptyText}>
-                  {showMineOnly ? 'No one-time chores assigned to you' : 'No one-time chores yet'}
+                  {showMineOnly ? t('choresOneTimeEmptyMine') : t('choresOneTimeEmptyAll')}
                 </ThemedText>
               )}
             </View>
@@ -472,7 +491,13 @@ const styles = StyleSheet.create({
   addCard: { borderRadius: Spacing.four, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, gap: Spacing.two },
   editingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   input: { fontSize: 16, paddingVertical: Spacing.one },
-  pillRow: { flexGrow: 0 },
+  // flexShrink: 1 + minWidth: 0 — see kids-section.tsx's identical
+  // pillRow comment (RN's flexShrink defaults to 0 for a plain
+  // ScrollView, and web's min-width:auto blocks shrinking even with
+  // flexShrink set) — without both, a pill row wider than its card
+  // overflows the rounded edge and clips the last pill (the "Leggja á
+  // borð" chore quick-pick falling outside the card was this bug).
+  pillRow: { flexGrow: 0, flexShrink: 1, minWidth: 0 },
   pill: {
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.one,
@@ -505,7 +530,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   checkboxSlot: { position: 'relative' },
-  choreTextWrapper: { flex: 1, gap: Spacing.half },
+  // minWidth: 0 — same web flexbox fix as pillRow above: without it, a
+  // long chore title won't shrink to wrap and instead overflows past
+  // the card's edge.
+  choreTextWrapper: { flex: 1, minWidth: 0, gap: Spacing.half },
   doneText: { textDecorationLine: 'line-through' },
   deleteIcon: { fontSize: 24, lineHeight: 24, paddingHorizontal: Spacing.one },
 });

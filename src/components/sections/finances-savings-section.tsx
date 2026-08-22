@@ -8,12 +8,14 @@ import { ProgressBar } from '@/components/progress-bar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
+import { useLanguage, useTranslation } from '@/hooks/use-language';
 import { useSavings } from '@/hooks/use-savings';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
 import { formatCurrency } from '@/lib/currency-format';
-import { parseAmount } from '@/lib/number-format';
-import { computeProgress, computeSavedTotal, formatGoalDeadline, isMilestoneReached } from '@/lib/savings-format';
+import { formatAmountInput, parseAmount } from '@/lib/number-format';
+import { formatMonthDay } from '@/lib/date-locale';
+import { computeProgress, computeSavedTotal, formatGoalDeadline } from '@/lib/savings-format';
 import type { SavingsGoal } from '@/types/savings';
 
 function todayIso(): string {
@@ -21,17 +23,16 @@ function todayIso(): string {
 }
 
 export function FinancesSavingsSection({ onBack }: { onBack: () => void }) {
+  const t = useTranslation();
+  const { language } = useLanguage();
   const theme = useTheme();
   const {
     goals,
-    milestones,
     contributions,
     loading,
     addGoal,
     updateGoal,
     deleteGoal,
-    addMilestone,
-    deleteMilestone,
     addContribution,
     deleteContribution,
   } = useSavings();
@@ -44,8 +45,6 @@ export function FinancesSavingsSection({ onBack }: { onBack: () => void }) {
   const [submitting, setSubmitting] = useState(false);
 
   const [expandedGoalId, setExpandedGoalId] = useState<string | null>(null);
-  const [milestoneLabel, setMilestoneLabel] = useState('');
-  const [milestoneAmount, setMilestoneAmount] = useState('');
   const [contributionAmount, setContributionAmount] = useState('');
   const [contributionNote, setContributionNote] = useState('');
 
@@ -60,7 +59,7 @@ export function FinancesSavingsSection({ onBack }: { onBack: () => void }) {
   function startEdit(goal: SavingsGoal) {
     setEditingId(goal.id);
     setName(goal.name);
-    setTargetAmount(String(goal.target_amount));
+    setTargetAmount(formatAmountInput(String(goal.target_amount)));
     setTargetDate(goal.target_date ?? '');
     setComposerOpen(true);
   }
@@ -78,40 +77,25 @@ export function FinancesSavingsSection({ onBack }: { onBack: () => void }) {
       }
       resetForm();
     } catch (err) {
-      showAlert(editingId ? "Couldn't save changes" : "Couldn't add goal", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(editingId ? t('financesSaveChangesError') : t('savingsAddGoalError'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setSubmitting(false);
     }
   }
 
   function confirmDelete(goal: SavingsGoal) {
-    showAlert('Delete goal', `Remove "${goal.name}" and its milestones and contributions?`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('savingsDeleteGoalTitle'), t('savingsDeleteGoalMessage', { name: goal.name }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('delete'),
         style: 'destructive',
         onPress: () => {
           if (editingId === goal.id) resetForm();
           if (expandedGoalId === goal.id) setExpandedGoalId(null);
-          deleteGoal(goal).catch((err) => showAlert("Couldn't delete goal", err instanceof Error ? err.message : 'Something went wrong'));
+          deleteGoal(goal).catch((err) => showAlert(t('savingsDeleteGoalError'), err instanceof Error ? err.message : t('genericErrorMessage')));
         },
       },
     ]);
-  }
-
-  function resetMilestoneForm() {
-    setMilestoneLabel('');
-    setMilestoneAmount('');
-  }
-
-  async function handleAddMilestone(goalId: string) {
-    if (!milestoneLabel.trim() || !milestoneAmount.trim()) return;
-    try {
-      await addMilestone(goalId, { label: milestoneLabel, targetAmount: parseAmount(milestoneAmount) });
-      resetMilestoneForm();
-    } catch (err) {
-      showAlert("Couldn't add milestone", err instanceof Error ? err.message : 'Something went wrong');
-    }
   }
 
   function resetContributionForm() {
@@ -125,16 +109,15 @@ export function FinancesSavingsSection({ onBack }: { onBack: () => void }) {
       await addContribution(goalId, { amount: parseAmount(contributionAmount), note: contributionNote || null, contributedAt: todayIso() });
       resetContributionForm();
     } catch (err) {
-      showAlert("Couldn't add contribution", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('savingsAddContributionError'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
   function renderGoalCard(goal: SavingsGoal) {
     const savedTotal = computeSavedTotal(goal.id, contributions);
     const progress = computeProgress(goal, savedTotal);
-    const deadline = formatGoalDeadline(goal.target_date);
+    const deadline = formatGoalDeadline(goal.target_date, new Date(), language);
     const isExpanded = expandedGoalId === goal.id;
-    const goalMilestones = milestones.filter((m) => m.goal_id === goal.id);
     const goalContributions = contributions.filter((c) => c.goal_id === goal.id);
 
     return (
@@ -146,7 +129,7 @@ export function FinancesSavingsSection({ onBack }: { onBack: () => void }) {
               <View style={styles.goalHeaderActions}>
                 <Pressable onPress={() => startEdit(goal)} hitSlop={8}>
                   <ThemedText type="small" themeColor="accent">
-                    Edit
+                    {t('edit')}
                   </ThemedText>
                 </Pressable>
                 <Pressable onPress={() => confirmDelete(goal)} hitSlop={8}>
@@ -173,76 +156,20 @@ export function FinancesSavingsSection({ onBack }: { onBack: () => void }) {
             <View style={styles.expandedSection}>
               <View style={[styles.nestedPanel, { backgroundColor: theme.backgroundSelected }]}>
                 <ThemedText type="smallBold" style={styles.nestedHeader}>
-                  MILESTONES
-                </ThemedText>
-                {goalMilestones.length === 0 && (
-                  <ThemedText type="small" themeColor="textSecondary">
-                    No milestones yet
-                  </ThemedText>
-                )}
-                {goalMilestones.map((m) => {
-                  const reached = isMilestoneReached(m, savedTotal);
-                  return (
-                    <View key={m.id} style={styles.milestoneRow}>
-                      <ThemedText type="small" themeColor={reached ? 'text' : 'textSecondary'} style={styles.milestoneLabel}>
-                        {reached ? '✓ ' : ''}
-                        {m.label} — {formatCurrency(m.target_amount)}
-                      </ThemedText>
-                      <Pressable
-                        onPress={() =>
-                          deleteMilestone(m).catch(() => showAlert("Couldn't delete milestone"))
-                        }
-                        hitSlop={8}>
-                        <ThemedText themeColor="textSecondary" style={styles.deleteIcon}>
-                          ×
-                        </ThemedText>
-                      </Pressable>
-                    </View>
-                  );
-                })}
-                <View style={styles.inlineComposerRow}>
-                  <TextInput
-                    style={[styles.input, styles.milestoneLabelInput, { color: theme.text, backgroundColor: theme.background }]}
-                    placeholder="Milestone label"
-                    placeholderTextColor={theme.textSecondary}
-                    value={milestoneLabel}
-                    onChangeText={setMilestoneLabel}
-                  />
-                  <TextInput
-                    style={[styles.input, styles.milestoneAmountInput, { color: theme.text, backgroundColor: theme.background }]}
-                    placeholder="kr."
-                    placeholderTextColor={theme.textSecondary}
-                    keyboardType="number-pad"
-                    value={milestoneAmount}
-                    onChangeText={setMilestoneAmount}
-                  />
-                  <Pressable
-                    onPress={() => handleAddMilestone(goal.id)}
-                    disabled={!milestoneLabel.trim() || !milestoneAmount.trim()}
-                    style={[styles.smallAddButton, { backgroundColor: theme.accent, opacity: milestoneLabel.trim() && milestoneAmount.trim() ? 1 : 0.5 }]}>
-                    <ThemedText type="smallBold" themeColor="background">
-                      Add
-                    </ThemedText>
-                  </Pressable>
-                </View>
-              </View>
-
-              <View style={[styles.nestedPanel, { backgroundColor: theme.backgroundSelected }]}>
-                <ThemedText type="smallBold" style={styles.nestedHeader}>
-                  CONTRIBUTIONS
+                  {t('savingsContributionsHeader')}
                 </ThemedText>
                 {goalContributions.length === 0 && (
                   <ThemedText type="small" themeColor="textSecondary">
-                    No contributions logged yet
+                    {t('savingsNoContributions')}
                   </ThemedText>
                 )}
                 {goalContributions.map((c) => (
-                  <View key={c.id} style={styles.milestoneRow}>
-                    <ThemedText type="small" themeColor="textSecondary" style={styles.milestoneLabel}>
-                      {formatCurrency(c.amount)} · {new Date(`${c.contributed_at}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                  <View key={c.id} style={styles.contributionRow}>
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.contributionText}>
+                      {formatCurrency(c.amount)} · {formatMonthDay(new Date(`${c.contributed_at}T00:00:00`), language)}
                       {c.note ? ` · ${c.note}` : ''}
                     </ThemedText>
-                    <Pressable onPress={() => deleteContribution(c).catch(() => showAlert("Couldn't delete contribution"))} hitSlop={8}>
+                    <Pressable onPress={() => deleteContribution(c).catch(() => showAlert(t('savingsDeleteContributionError')))} hitSlop={8}>
                       <ThemedText themeColor="textSecondary" style={styles.deleteIcon}>
                         ×
                       </ThemedText>
@@ -251,16 +178,16 @@ export function FinancesSavingsSection({ onBack }: { onBack: () => void }) {
                 ))}
                 <View style={styles.inlineComposerRow}>
                   <TextInput
-                    style={[styles.input, styles.milestoneAmountInput, { color: theme.text, backgroundColor: theme.background }]}
-                    placeholder="Amount"
+                    style={[styles.input, styles.contributionAmountInput, { color: theme.text, backgroundColor: theme.background }]}
+                    placeholder={t('savingsContributionAmountPlaceholder')}
                     placeholderTextColor={theme.textSecondary}
                     keyboardType="number-pad"
                     value={contributionAmount}
-                    onChangeText={setContributionAmount}
+                    onChangeText={(v) => setContributionAmount(formatAmountInput(v))}
                   />
                   <TextInput
-                    style={[styles.input, styles.milestoneLabelInput, { color: theme.text, backgroundColor: theme.background }]}
-                    placeholder="Note (optional)"
+                    style={[styles.input, styles.contributionNoteInput, { color: theme.text, backgroundColor: theme.background }]}
+                    placeholder={t('savingsContributionNotePlaceholder')}
                     placeholderTextColor={theme.textSecondary}
                     value={contributionNote}
                     onChangeText={setContributionNote}
@@ -270,7 +197,7 @@ export function FinancesSavingsSection({ onBack }: { onBack: () => void }) {
                     disabled={!contributionAmount.trim()}
                     style={[styles.smallAddButton, { backgroundColor: theme.accent, opacity: contributionAmount.trim() ? 1 : 0.5 }]}>
                     <ThemedText type="smallBold" themeColor="background">
-                      Add
+                      {t('add')}
                     </ThemedText>
                   </Pressable>
                 </View>
@@ -285,24 +212,24 @@ export function FinancesSavingsSection({ onBack }: { onBack: () => void }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <BackButton label="Finances" onPress={onBack} />
+        <BackButton label={t('financesTitle')} onPress={onBack} />
       </View>
 
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
         {composerOpen ? (
           <ThemedView type="backgroundElement" style={styles.addCard}>
             <View style={styles.editingRow}>
-              <ThemedText type="smallBold">{editingId ? 'Edit goal' : 'New goal'}</ThemedText>
+              <ThemedText type="smallBold">{editingId ? t('savingsEditGoalTitle') : t('savingsNewGoalTitle')}</ThemedText>
               <Pressable onPress={resetForm} hitSlop={8}>
                 <ThemedText type="small" themeColor="accent">
-                  Cancel
+                  {t('cancel')}
                 </ThemedText>
               </Pressable>
             </View>
 
             <TextInput
               style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
-              placeholder="e.g. Vacation fund, Emergency fund…"
+              placeholder={t('savingsGoalNamePlaceholder')}
               placeholderTextColor={theme.textSecondary}
               value={name}
               onChangeText={setName}
@@ -311,16 +238,16 @@ export function FinancesSavingsSection({ onBack }: { onBack: () => void }) {
             <View style={styles.inputsRow}>
               <TextInput
                 style={[styles.input, styles.flexInput, { color: theme.text, backgroundColor: theme.background }]}
-                placeholder="Target amount (kr.)"
+                placeholder={t('savingsTargetAmountPlaceholder')}
                 placeholderTextColor={theme.textSecondary}
                 keyboardType="number-pad"
                 value={targetAmount}
-                onChangeText={setTargetAmount}
+                onChangeText={(v) => setTargetAmount(formatAmountInput(v))}
               />
             </View>
             <TextInput
               style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
-              placeholder="Target date (optional, YYYY-MM-DD)"
+              placeholder={t('savingsTargetDatePlaceholder')}
               placeholderTextColor={theme.textSecondary}
               value={targetDate}
               onChangeText={setTargetDate}
@@ -331,7 +258,7 @@ export function FinancesSavingsSection({ onBack }: { onBack: () => void }) {
               disabled={!name.trim() || !targetAmount.trim() || submitting}
               onPress={handleSubmit}>
               <ThemedText type="smallBold" themeColor="background">
-                {editingId ? 'Save changes' : 'Add goal'}
+                {editingId ? t('saveChanges') : t('savingsAddGoalButton')}
               </ThemedText>
             </Pressable>
           </ThemedView>
@@ -344,7 +271,7 @@ export function FinancesSavingsSection({ onBack }: { onBack: () => void }) {
             style={styles.addLink}
             hitSlop={8}>
             <ThemedText type="smallBold" themeColor="accent">
-              + Add goal
+              {t('savingsAddGoalLink')}
             </ThemedText>
           </Pressable>
         )}
@@ -355,7 +282,7 @@ export function FinancesSavingsSection({ onBack }: { onBack: () => void }) {
           <View style={styles.emptyState}>
             <SavingsIcon color={theme.backgroundSelected} size={40} />
             <ThemedText themeColor="textSecondary" style={styles.emptyText}>
-              No savings goals yet — add one above to start tracking progress.
+              {t('savingsEmptyState')}
             </ThemedText>
           </View>
         )}
@@ -390,8 +317,8 @@ const styles = StyleSheet.create({
   expandedSection: { gap: Spacing.two, marginTop: Spacing.one },
   nestedPanel: { borderRadius: Spacing.three, padding: Spacing.two, gap: Spacing.one },
   nestedHeader: { letterSpacing: 0.5, marginBottom: Spacing.half },
-  milestoneRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two },
-  milestoneLabel: { flex: 1 },
+  contributionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two },
+  contributionText: { flex: 1 },
   inlineComposerRow: { flexDirection: 'row', gap: Spacing.one, marginTop: Spacing.one, alignItems: 'center' },
   // minWidth: 0 is required here — flex items default to min-width:auto
   // on web, so a rendered <input>'s intrinsic content width wins over
@@ -399,7 +326,7 @@ const styles = StyleSheet.create({
   // the row to overflow instead of dividing by the flex ratio (same
   // class of bug patched once already in the Loans composer, that time
   // via shorter placeholders — this is the actual underlying cause).
-  milestoneLabelInput: { flex: 2, flexBasis: 0, minWidth: 0 },
-  milestoneAmountInput: { flex: 1, flexBasis: 0, minWidth: 0 },
+  contributionNoteInput: { flex: 2, flexBasis: 0, minWidth: 0 },
+  contributionAmountInput: { flex: 1, flexBasis: 0, minWidth: 0 },
   smallAddButton: { flexShrink: 0, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, borderRadius: Spacing.two },
 });

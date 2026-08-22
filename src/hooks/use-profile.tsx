@@ -3,6 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useHousehold } from '@/hooks/use-household';
+import { useTranslation } from '@/hooks/use-language';
 import { getAuthCallbackUrl, supabase } from '@/lib/supabase';
 import type { Profile } from '@/types/household';
 
@@ -13,6 +14,7 @@ type ProfilePatch = Partial<Pick<Profile, 'full_name' | 'phone' | 'kennitala'>>;
  * though it leans on it to keep the household roster's cached copy of
  * name/avatar/xp in sync after an edit here. */
 export function useProfile() {
+  const t = useTranslation();
   const { refresh: refreshHousehold } = useHousehold();
   const [userId, setUserId] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
@@ -61,7 +63,7 @@ export function useProfile() {
     // required on native to actually get the library open.
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      throw new Error('Photo library permission is required to change your avatar.');
+      throw new Error(t('avatarPermissionRequired'));
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -105,7 +107,7 @@ export function useProfile() {
     } finally {
       setUploadingAvatar(false);
     }
-  }, [userId, refreshHousehold]);
+  }, [userId, refreshHousehold, t]);
 
   const removeAvatar = useCallback(async () => {
     if (!userId || !profile?.avatar_url) return;
@@ -134,18 +136,18 @@ export function useProfile() {
 
   const changePassword = useCallback(
     async (currentPassword: string, newPassword: string) => {
-      if (!email) throw new Error('Missing account email');
+      if (!email) throw new Error(t('changePasswordMissingEmail'));
       // Re-authenticate with the current password first rather than just
       // calling updateUser directly — an already-open session shouldn't be
       // enough on its own to silently take over the account (e.g. a
       // left-open browser tab on a shared device).
       const { error: reauthError } = await supabase.auth.signInWithPassword({ email, password: currentPassword });
-      if (reauthError) throw new Error('Current password is incorrect');
+      if (reauthError) throw new Error(t('changePasswordCurrentIncorrect'));
 
       const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
       if (updateError) throw updateError;
     },
-    [email]
+    [email, t]
   );
 
   const changeEmail = useCallback(async (newEmail: string) => {

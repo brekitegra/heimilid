@@ -72,6 +72,35 @@ export function useFoodLog() {
     [userId]
   );
 
+  const updateEntry = useCallback(async (entry: FoodLogEntry, input: FoodLogEntryInput) => {
+    const previous = entry;
+    const optimistic: FoodLogEntry = {
+      ...entry,
+      logged_date: input.loggedDate,
+      name: input.name.trim(),
+      calories: input.calories,
+      protein_g: input.proteinG,
+      fat_g: input.fatG,
+      carbs_g: input.carbsG,
+    };
+    setEntries((prev) => prev.map((e) => (e.id === entry.id ? optimistic : e)));
+    const { error } = await supabase
+      .from('food_log_entries')
+      .update({
+        logged_date: input.loggedDate,
+        name: input.name.trim(),
+        calories: input.calories,
+        protein_g: input.proteinG,
+        fat_g: input.fatG,
+        carbs_g: input.carbsG,
+      })
+      .eq('id', entry.id);
+    if (error) {
+      setEntries((prev) => prev.map((e) => (e.id === entry.id ? previous : e)));
+      throw error;
+    }
+  }, []);
+
   const deleteEntry = useCallback(async (entry: FoodLogEntry) => {
     setEntries((prev) => prev.filter((e) => e.id !== entry.id));
     const { error } = await supabase.from('food_log_entries').delete().eq('id', entry.id);
@@ -127,6 +156,7 @@ export function useFoodLog() {
     savedFoods,
     loading,
     addEntry,
+    updateEntry,
     deleteEntry,
     addSavedFood,
     deleteSavedFood,

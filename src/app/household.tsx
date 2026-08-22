@@ -6,8 +6,9 @@ import { Avatar } from '@/components/avatar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { BottomTabInset, MaxContentWidth, Spacing, WebTabBarHeight } from '@/constants/theme';
 import { useHousehold } from '@/hooks/use-household';
+import { useLanguage, useTranslation } from '@/hooks/use-language';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
 import { shareHouseholdInvite } from '@/lib/share-invite';
@@ -17,6 +18,8 @@ export default function HouseholdScreen() {
   const safeAreaInsets = useSafeAreaInsets();
   const insets = { ...safeAreaInsets, bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three };
   const theme = useTheme();
+  const t = useTranslation();
+  const { language } = useLanguage();
   const { household, members, leaveHousehold } = useHousehold();
   const [leaving, setLeaving] = useState(false);
 
@@ -28,28 +31,30 @@ export default function HouseholdScreen() {
       paddingBottom: insets.bottom,
     },
     web: {
-      paddingTop: Spacing.six,
+      // WebTabBarHeight clears the tab bar's own bottom edge, plus a
+      // small visible gap (see index.tsx's identical comment).
+      paddingTop: WebTabBarHeight + Spacing.two,
       paddingBottom: Spacing.four,
     },
   });
 
   async function shareInvite() {
     if (!household) return;
-    await shareHouseholdInvite(household);
+    await shareHouseholdInvite(household, language);
   }
 
   function confirmLeave() {
-    showAlert('Leave household', `Leave "${household?.name}"? You'll need the invite code to rejoin.`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('householdLeaveConfirmTitle'), t('householdLeaveConfirmBody', { name: household?.name ?? '' }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Leave',
+        text: t('householdLeaveButton'),
         style: 'destructive',
         onPress: async () => {
           setLeaving(true);
           try {
             await leaveHousehold();
           } catch (err) {
-            showAlert("Couldn't leave household", err instanceof Error ? err.message : 'Something went wrong');
+            showAlert(t('householdLeaveError'), err instanceof Error ? err.message : t('genericErrorMessage'));
           } finally {
             setLeaving(false);
           }
@@ -65,48 +70,50 @@ export default function HouseholdScreen() {
       contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
       <ThemedView style={styles.container}>
         <ThemedView style={styles.titleContainer}>
-          <ThemedText type="subtitle">{household?.name ?? 'Household'}</ThemedText>
+          <ThemedText type="subtitle">{household?.name ?? t('householdFallbackTitle')}</ThemedText>
           <ThemedText themeColor="textSecondary" style={styles.centerText}>
-            {members.length} {members.length === 1 ? 'member' : 'members'}
+            {members.length} {t(members.length === 1 ? 'householdMemberCountOne' : 'householdMemberCountOther')}
           </ThemedText>
         </ThemedView>
 
         <ThemedView type="backgroundElement" style={styles.inviteCard}>
           <ThemedText type="small" themeColor="textSecondary">
-            Invite code
+            {t('inviteCode')}
           </ThemedText>
           <ThemedText type="subtitle" style={styles.inviteCode}>
             {household?.invite_code}
           </ThemedText>
           <Pressable onPress={shareInvite} style={({ pressed }) => pressed && styles.pressed}>
             <ThemedView type="backgroundSelected" style={styles.shareButton}>
-              <ThemedText type="linkPrimary">Share invite code</ThemedText>
+              <ThemedText type="linkPrimary">{t('householdShareInviteButton')}</ThemedText>
             </ThemedView>
           </Pressable>
         </ThemedView>
 
         <ThemedView style={styles.membersSection}>
           <ThemedText type="smallBold" themeColor="textSecondary">
-            LEADERBOARD
+            {members.length >= 2 ? t('leaderboard') : t('yourHousehold')}
           </ThemedText>
           {sortMembersByXp(members).map((member, index) => {
             const xp = member.profile?.xp ?? 0;
             return (
               <ThemedView key={member.user_id} type="backgroundElement" style={styles.memberRow}>
                 <View style={styles.memberIdentity}>
-                  <ThemedText type="smallBold" style={styles.rankBadge}>
-                    {rankBadge(index)}
-                  </ThemedText>
+                  {members.length >= 2 && (
+                    <ThemedText type="smallBold" style={styles.rankBadge}>
+                      {rankBadge(index)}
+                    </ThemedText>
+                  )}
                   <Avatar url={member.profile?.avatar_url} name={member.profile?.full_name} size={36} />
                   <View style={styles.memberNameColumn}>
-                    <ThemedText type="default">{member.profile?.full_name?.trim() || 'Unnamed'}</ThemedText>
+                    <ThemedText type="default">{member.profile?.full_name?.trim() || t('unnamedFallback')}</ThemedText>
                     <ThemedText type="small" themeColor="textSecondary">
-                      Level {levelForXp(xp)} · {xp} XP
+                      {t('memberLevelXpLabel', { level: levelForXp(xp), xp })}
                     </ThemedText>
                   </View>
                 </View>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {member.role === 'owner' ? 'Owner' : 'Member'}
+                  {member.role === 'owner' ? t('roleOwner') : t('roleMember')}
                 </ThemedText>
               </ThemedView>
             );
@@ -115,7 +122,7 @@ export default function HouseholdScreen() {
 
         <Pressable disabled={leaving} onPress={confirmLeave} style={({ pressed }) => pressed && styles.pressed}>
           <ThemedText type="link" style={styles.leaveText}>
-            {leaving ? 'Leaving…' : 'Leave household'}
+            {leaving ? t('householdLeavingInProgress') : t('householdLeaveConfirmTitle')}
           </ThemedText>
         </Pressable>
 

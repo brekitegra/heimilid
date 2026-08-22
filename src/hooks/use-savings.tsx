@@ -2,19 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useHousehold } from '@/hooks/use-household';
 import { supabase } from '@/lib/supabase';
-import type {
-  SavingsContribution,
-  SavingsContributionInput,
-  SavingsGoal,
-  SavingsGoalInput,
-  SavingsMilestone,
-  SavingsMilestoneInput,
-} from '@/types/savings';
+import type { SavingsContribution, SavingsContributionInput, SavingsGoal, SavingsGoalInput } from '@/types/savings';
 
 export function useSavings() {
   const { household } = useHousehold();
   const [goals, setGoals] = useState<SavingsGoal[]>([]);
-  const [milestones, setMilestones] = useState<SavingsMilestone[]>([]);
   const [contributions, setContributions] = useState<SavingsContribution[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +21,6 @@ export function useSavings() {
   const load = useCallback(async () => {
     if (!household) {
       setGoals([]);
-      setMilestones([]);
       setContributions([]);
       setLoading(false);
       return;
@@ -52,24 +43,20 @@ export function useSavings() {
 
     const goalIds = loadedGoals.map((g) => g.id);
     if (goalIds.length === 0) {
-      setMilestones([]);
       setContributions([]);
       setError(null);
       setLoading(false);
       return;
     }
 
-    const [milestoneRes, contributionRes] = await Promise.all([
-      supabase.from('savings_milestones').select('*').in('goal_id', goalIds).order('target_amount', { ascending: true }),
-      supabase.from('savings_contributions').select('*').in('goal_id', goalIds).order('contributed_at', { ascending: false }),
-    ]);
+    const { data: contributionRows, error: contributionError } = await supabase
+      .from('savings_contributions')
+      .select('*')
+      .in('goal_id', goalIds)
+      .order('contributed_at', { ascending: false });
 
-    if (milestoneRes.error) setError(milestoneRes.error.message);
-    else if (contributionRes.error) setError(contributionRes.error.message);
-    else setError(null);
-
-    setMilestones((milestoneRes.data ?? []) as SavingsMilestone[]);
-    setContributions((contributionRes.data ?? []) as SavingsContribution[]);
+    setError(contributionError ? contributionError.message : null);
+    setContributions((contributionRows ?? []) as SavingsContribution[]);
     setLoading(false);
   }, [household]);
 
@@ -112,33 +99,9 @@ export function useSavings() {
 
   const deleteGoal = useCallback(async (goal: SavingsGoal) => {
     setGoals((prev) => prev.filter((g) => g.id !== goal.id));
-    setMilestones((prev) => prev.filter((m) => m.goal_id !== goal.id));
     setContributions((prev) => prev.filter((c) => c.goal_id !== goal.id));
     const { error } = await supabase.from('savings_goals').delete().eq('id', goal.id);
     if (error) throw error; // rows for this goal are gone regardless via ON DELETE CASCADE if this somehow fails oddly; a full reload would recover
-  }, []);
-
-  const addMilestone = useCallback(
-    async (goalId: string, input: SavingsMilestoneInput) => {
-      if (!currentUserId) return;
-      const { data, error } = await supabase
-        .from('savings_milestones')
-        .insert({ goal_id: goalId, label: input.label.trim(), target_amount: input.targetAmount, created_by: currentUserId })
-        .select()
-        .single();
-      if (error) throw error;
-      setMilestones((prev) => [...prev, data as SavingsMilestone].sort((a, b) => a.target_amount - b.target_amount));
-    },
-    [currentUserId]
-  );
-
-  const deleteMilestone = useCallback(async (milestone: SavingsMilestone) => {
-    setMilestones((prev) => prev.filter((m) => m.id !== milestone.id));
-    const { error } = await supabase.from('savings_milestones').delete().eq('id', milestone.id);
-    if (error) {
-      setMilestones((prev) => [...prev, milestone].sort((a, b) => a.target_amount - b.target_amount));
-      throw error;
-    }
   }, []);
 
   const addContribution = useCallback(
@@ -172,15 +135,12 @@ export function useSavings() {
 
   return {
     goals,
-    milestones,
     contributions,
     loading,
     error,
     addGoal,
     updateGoal,
     deleteGoal,
-    addMilestone,
-    deleteMilestone,
     addContribution,
     deleteContribution,
     refresh: load,

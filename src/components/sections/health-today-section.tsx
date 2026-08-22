@@ -10,23 +10,43 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { toLocalISODate } from '@/lib/date-format';
+import { formatMonthDay } from '@/lib/date-locale';
 import { useDelayedBlur } from '@/hooks/use-delayed-blur';
 import { useFoodLog } from '@/hooks/use-food-log';
 import { useHealthProfile } from '@/hooks/use-health-profile';
+import { useLanguage, useTranslation, type TranslationKey } from '@/hooks/use-language';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
-import { round1 } from '@/lib/number-format';
-import type { SavedFood } from '@/types/food-log';
+import { isSameName } from '@/lib/duplicate-check';
+import { round1, sanitizeNumericInput, parseDecimal } from '@/lib/number-format';
+import type { FoodLogEntry, SavedFood } from '@/types/food-log';
+
+// Sunday-first, matching Date.getDay() — see chore-format.ts's doc
+// comment for why the *-format.ts libs branch on `language` directly
+// instead of using t(); this one's local to this screen since the
+// weekday name is only ever used for this one header.
+const WEEKDAY_FULL_KEYS: TranslationKey[] = [
+  'weekdaySunday',
+  'weekdayMonday',
+  'weekdayTuesday',
+  'weekdayWednesday',
+  'weekdayThursday',
+  'weekdayFriday',
+  'weekdaySaturday',
+];
 
 const MACRO_COLORS = { calories: '#C1633D', protein: '#4a90a4', fat: '#c9a227', carbs: '#7c9c6b' };
 
 export function HealthTodaySection({ onBack }: { onBack: () => void }) {
   const theme = useTheme();
+  const t = useTranslation();
+  const { language } = useLanguage();
   const { profile } = useHealthProfile();
-  const { entries, savedFoods, loading, addEntry, deleteEntry, addSavedFood, deleteSavedFood, logSavedFood } = useFoodLog();
+  const { entries, savedFoods, loading, addEntry, updateEntry, deleteEntry, addSavedFood, deleteSavedFood, logSavedFood } = useFoodLog();
 
   const [selectedDate, setSelectedDate] = useState(() => toLocalISODate(new Date()));
 
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [foodName, setFoodName] = useState('');
   const [foodCalories, setFoodCalories] = useState('');
   const [foodProtein, setFoodProtein] = useState('');
@@ -35,7 +55,7 @@ export function HealthTodaySection({ onBack }: { onBack: () => void }) {
   const [composerFocused, setComposerFocused] = useState(false);
   const composerBlur = useDelayedBlur(setComposerFocused);
   const [submitting, setSubmitting] = useState(false);
-  const isComposerExpanded = composerFocused || foodName.trim().length > 0;
+  const isComposerExpanded = composerFocused || foodName.trim().length > 0 || editingEntryId !== null;
 
   const [saveAsFood, setSaveAsFood] = useState(false);
 
@@ -54,11 +74,8 @@ export function HealthTodaySection({ onBack }: { onBack: () => void }) {
     [dayEntries]
   );
 
-  const dayLabel = new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-  });
+  const dateObj = new Date(`${selectedDate}T00:00:00`);
+  const dayLabel = `${t(WEEKDAY_FULL_KEYS[dateObj.getDay()])}, ${formatMonthDay(dateObj, language)}`;
   const isToday = selectedDate === toLocalISODate(new Date());
 
   function shiftDay(delta: number) {
@@ -68,12 +85,22 @@ export function HealthTodaySection({ onBack }: { onBack: () => void }) {
   }
 
   function resetComposer() {
+    setEditingEntryId(null);
     setFoodName('');
     setFoodCalories('');
     setFoodProtein('');
     setFoodFat('');
     setFoodCarbs('');
     setSaveAsFood(false);
+  }
+
+  function startEdit(entry: FoodLogEntry) {
+    setEditingEntryId(entry.id);
+    setFoodName(entry.name);
+    setFoodCalories(String(entry.calories));
+    setFoodProtein(String(round1(Number(entry.protein_g))));
+    setFoodFat(String(round1(Number(entry.fat_g))));
+    setFoodCarbs(String(round1(Number(entry.carbs_g))));
   }
 
   async function handleAddFood() {
@@ -83,20 +110,52 @@ export function HealthTodaySection({ onBack }: { onBack: () => void }) {
       const input = {
         loggedDate: selectedDate,
         name: foodName,
-        calories: Number(foodCalories) || 0,
-        proteinG: Number(foodProtein) || 0,
-        fatG: Number(foodFat) || 0,
-        carbsG: Number(foodCarbs) || 0,
+        calories: parseDecimal(foodCalories),
+        proteinG: parseDecimal(foodProtein),
+        fatG: parseDecimal(foodFat),
+        carbsG: parseDecimal(foodCarbs),
       };
-      await addEntry(input);
-      if (saveAsFood) {
-        await addSavedFood({ name: input.name, calories: input.calories, proteinG: input.proteinG, fatG: input.fatG, carbsG: input.carbsG });
+      if (editingEntryId) {
+        const entry = entries.find((e) => e.id === editingEntryId);
+        if (entry) await updateEntry(entry, input);
+      } else {
+        await addEntry(input);
+        if (saveAsFood) {
+          await addSavedFood({ name: input.name, calories: input.calories, proteinG: input.proteinG, fatG: input.fatG, carbsG: input.carbsG });
+        }
       }
       resetComposer();
     } catch (err) {
-      showAlert("Couldn't add food", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(
+        editingEntryId ? t('healthAlertSaveFoodFailedTitle') : t('healthAlertAddFoodFailedTitle'),
+        err instanceof Error ? err.message : t('genericErrorMessage')
+      );
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // The composer's "save as food" checkbox only exists while you're still
+  // typing a brand-new entry — once it's logged, that checkbox is gone
+  // along with the rest of the composer, with no way back to it. This is
+  // the other half of "save as food": saving one after the fact, from an
+  // entry you've already logged (including ones you forgot to check the
+  // box for, or logged before this button existed at all).
+  async function handleSaveEntryAsFood(entry: FoodLogEntry) {
+    if (savedFoods.some((f) => isSameName(f.name, entry.name))) {
+      showAlert(t('errorAlreadyOnList'), t('healthAlreadySavedMessage', { name: entry.name }));
+      return;
+    }
+    try {
+      await addSavedFood({
+        name: entry.name,
+        calories: entry.calories,
+        proteinG: Number(entry.protein_g),
+        fatG: Number(entry.fat_g),
+        carbsG: Number(entry.carbs_g),
+      });
+    } catch (err) {
+      showAlert(t('healthAlertSaveEntryAsFoodFailedTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
@@ -104,7 +163,7 @@ export function HealthTodaySection({ onBack }: { onBack: () => void }) {
     try {
       await logSavedFood(food, selectedDate);
     } catch (err) {
-      showAlert("Couldn't log food", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('healthAlertLogFoodFailedTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
@@ -127,12 +186,12 @@ export function HealthTodaySection({ onBack }: { onBack: () => void }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <BackButton label="Health" onPress={onBack} />
+        <BackButton label={t('healthTitle')} onPress={onBack} />
       </View>
 
       <View style={styles.dayNavRow}>
         <NavArrowButton direction="prev" onPress={() => shiftDay(-1)} />
-        <ThemedText type="smallBold">{isToday ? `Today · ${dayLabel}` : dayLabel}</ThemedText>
+        <ThemedText type="smallBold">{isToday ? `${t('healthTodayDayPrefix')} · ${dayLabel}` : dayLabel}</ThemedText>
         <NavArrowButton direction="next" onPress={() => shiftDay(1)} />
       </View>
 
@@ -140,20 +199,31 @@ export function HealthTodaySection({ onBack }: { onBack: () => void }) {
         <ThemedView type="backgroundElement" style={styles.macroCard}>
           {!profile?.calorie_target && (
             <ThemedText type="small" themeColor="textSecondary">
-              No targets set yet — set them up in the Profile tab to see progress bars here.
+              {t('healthTodayNoTargetsMessage')}
             </ThemedText>
           )}
-          {renderMacroBar('Calories', totals.calories, profile?.calorie_target ?? null, MACRO_COLORS.calories, 'kcal')}
-          {renderMacroBar('Protein', totals.protein, profile?.protein_target_g ?? null, MACRO_COLORS.protein, 'g')}
-          {renderMacroBar('Fat', totals.fat, profile?.fat_target_g ?? null, MACRO_COLORS.fat, 'g')}
-          {renderMacroBar('Carbs', totals.carbs, profile?.carb_target_g ?? null, MACRO_COLORS.carbs, 'g')}
+          {renderMacroBar(t('healthMacroCalories'), totals.calories, profile?.calorie_target ?? null, MACRO_COLORS.calories, t('healthUnitKcal'))}
+          {renderMacroBar(t('healthMacroProtein'), totals.protein, profile?.protein_target_g ?? null, MACRO_COLORS.protein, t('healthUnitGrams'))}
+          {renderMacroBar(t('healthMacroFat'), totals.fat, profile?.fat_target_g ?? null, MACRO_COLORS.fat, t('healthUnitGrams'))}
+          {renderMacroBar(t('healthMacroCarbs'), totals.carbs, profile?.carb_target_g ?? null, MACRO_COLORS.carbs, t('healthUnitGrams'))}
         </ThemedView>
 
         <Animated.View layout={LinearTransition.duration(200)}>
           <ThemedView type="backgroundElement" style={styles.addCard}>
+            {editingEntryId && (
+              <View style={styles.editingRow}>
+                <ThemedText type="smallBold">{t('healthEditFoodHeading')}</ThemedText>
+                <Pressable onPress={resetComposer} hitSlop={8}>
+                  <ThemedText type="small" themeColor="accent">
+                    {t('cancel')}
+                  </ThemedText>
+                </Pressable>
+              </View>
+            )}
+
             <TextInput
               style={[styles.input, { color: theme.text }]}
-              placeholder="Add a food…"
+              placeholder={t('healthFoodComposerPlaceholder')}
               placeholderTextColor={theme.textSecondary}
               value={foodName}
               onChangeText={setFoodName}
@@ -166,21 +236,21 @@ export function HealthTodaySection({ onBack }: { onBack: () => void }) {
                 <View style={styles.macroInputsRow}>
                   <TextInput
                     style={[styles.input, styles.macroInput, { color: theme.text, backgroundColor: theme.backgroundSelected }]}
-                    placeholder="kcal"
+                    placeholder={t('healthUnitKcal')}
                     placeholderTextColor={theme.textSecondary}
-                    keyboardType="number-pad"
+                    keyboardType="decimal-pad"
                     value={foodCalories}
-                    onChangeText={setFoodCalories}
+                    onChangeText={(v) => setFoodCalories(sanitizeNumericInput(v))}
                     onFocus={composerBlur.onFocus}
                     onBlur={composerBlur.onBlur}
                   />
                   <TextInput
                     style={[styles.input, styles.macroInput, { color: theme.text, backgroundColor: theme.backgroundSelected }]}
-                    placeholder="Protein g"
+                    placeholder={t('healthPlaceholderProteinG')}
                     placeholderTextColor={theme.textSecondary}
-                    keyboardType="number-pad"
+                    keyboardType="decimal-pad"
                     value={foodProtein}
-                    onChangeText={setFoodProtein}
+                    onChangeText={(v) => setFoodProtein(sanitizeNumericInput(v))}
                     onFocus={composerBlur.onFocus}
                     onBlur={composerBlur.onBlur}
                   />
@@ -188,32 +258,34 @@ export function HealthTodaySection({ onBack }: { onBack: () => void }) {
                 <View style={styles.macroInputsRow}>
                   <TextInput
                     style={[styles.input, styles.macroInput, { color: theme.text, backgroundColor: theme.backgroundSelected }]}
-                    placeholder="Fat g"
+                    placeholder={t('healthPlaceholderFatG')}
                     placeholderTextColor={theme.textSecondary}
-                    keyboardType="number-pad"
+                    keyboardType="decimal-pad"
                     value={foodFat}
-                    onChangeText={setFoodFat}
+                    onChangeText={(v) => setFoodFat(sanitizeNumericInput(v))}
                     onFocus={composerBlur.onFocus}
                     onBlur={composerBlur.onBlur}
                   />
                   <TextInput
                     style={[styles.input, styles.macroInput, { color: theme.text, backgroundColor: theme.backgroundSelected }]}
-                    placeholder="Carbs g"
+                    placeholder={t('healthPlaceholderCarbsG')}
                     placeholderTextColor={theme.textSecondary}
-                    keyboardType="number-pad"
+                    keyboardType="decimal-pad"
                     value={foodCarbs}
-                    onChangeText={setFoodCarbs}
+                    onChangeText={(v) => setFoodCarbs(sanitizeNumericInput(v))}
                     onFocus={composerBlur.onFocus}
                     onBlur={composerBlur.onBlur}
                   />
                 </View>
 
-                <Pressable onPress={() => setSaveAsFood((v) => !v)} style={styles.saveFoodRow} hitSlop={4}>
-                  <View style={[styles.checkbox, { borderColor: theme.backgroundSelected }, saveAsFood && { backgroundColor: theme.accent }]} />
-                  <ThemedText type="small" themeColor="textSecondary">
-                    Save as a food for quick re-logging
-                  </ThemedText>
-                </Pressable>
+                {!editingEntryId && (
+                  <Pressable onPressIn={composerBlur.onFocus} onPress={() => setSaveAsFood((v) => !v)} style={styles.saveFoodRow} hitSlop={4}>
+                    <View style={[styles.checkbox, { borderColor: theme.backgroundSelected }, saveAsFood && { backgroundColor: theme.accent }]} />
+                    <ThemedText type="small" themeColor="textSecondary">
+                      {t('healthSaveAsFoodLabel')}
+                    </ThemedText>
+                  </Pressable>
+                )}
 
                 <Pressable
                   style={[styles.addButton, { backgroundColor: theme.accent, opacity: foodName.trim() && !submitting ? 1 : 0.5 }]}
@@ -223,7 +295,7 @@ export function HealthTodaySection({ onBack }: { onBack: () => void }) {
                     <ActivityIndicator color={theme.background} />
                   ) : (
                     <ThemedText type="smallBold" themeColor="background">
-                      Add
+                      {editingEntryId ? t('saveChanges') : t('healthAddFoodButton')}
                     </ThemedText>
                   )}
                 </Pressable>
@@ -236,19 +308,34 @@ export function HealthTodaySection({ onBack }: { onBack: () => void }) {
 
         {dayEntries.length === 0 && !loading ? (
           <ThemedText type="small" themeColor="textSecondary" style={styles.emptyText}>
-            Nothing logged for this day yet.
+            {t('healthTodayEmptyState')}
           </ThemedText>
         ) : (
           dayEntries.map((entry) => (
             <Animated.View key={entry.id} layout={LinearTransition.duration(200)} exiting={FadeOut.duration(200)}>
-              <ThemedView type="backgroundElement" style={styles.entryRow}>
-                <View style={styles.entryTextWrapper}>
+              <ThemedView
+                type="backgroundElement"
+                style={[styles.entryRow, editingEntryId === entry.id && { borderColor: theme.accent, borderWidth: 1 }]}>
+                <Pressable style={styles.entryTextWrapper} onPress={() => startEdit(entry)}>
                   <ThemedText type="default">{entry.name}</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
-                    {entry.calories} kcal · {round1(Number(entry.protein_g))}p · {round1(Number(entry.fat_g))}f · {round1(Number(entry.carbs_g))}c
+                    {t('healthEntrySummary', {
+                      calories: entry.calories,
+                      protein: round1(Number(entry.protein_g)),
+                      proteinAbbr: t('healthAbbrProtein'),
+                      fat: round1(Number(entry.fat_g)),
+                      fatAbbr: t('healthAbbrFat'),
+                      carbs: round1(Number(entry.carbs_g)),
+                      carbsAbbr: t('healthAbbrCarbs'),
+                    })}
                   </ThemedText>
-                </View>
-                <Pressable onPress={() => deleteEntry(entry).catch(() => showAlert("Couldn't remove food"))} hitSlop={8}>
+                </Pressable>
+                <Pressable onPress={() => handleSaveEntryAsFood(entry)} hitSlop={8}>
+                  <ThemedText type="small" themeColor="accent">
+                    {t('healthSaveEntryButton')}
+                  </ThemedText>
+                </Pressable>
+                <Pressable onPress={() => deleteEntry(entry).catch(() => showAlert(t('healthAlertRemoveFoodFailedTitle')))} hitSlop={8}>
                   <ThemedText themeColor="textSecondary" style={styles.deleteIcon}>
                     ×
                   </ThemedText>
@@ -258,10 +345,10 @@ export function HealthTodaySection({ onBack }: { onBack: () => void }) {
           ))
         )}
 
-        <CollapsibleCard title="SAVED FOODS">
+        <CollapsibleCard title={t('healthSavedFoodsSectionTitle')}>
           {savedFoods.length === 0 ? (
             <ThemedText type="small" themeColor="textSecondary">
-              No saved foods yet — check &quot;Save as a food&quot; when logging one above.
+              {t('healthSavedFoodsEmptyState')}
             </ThemedText>
           ) : (
             savedFoods.map((food) => (
@@ -269,10 +356,18 @@ export function HealthTodaySection({ onBack }: { onBack: () => void }) {
                 <Pressable style={styles.entryTextWrapper} onPress={() => handleLogSaved(food)}>
                   <ThemedText type="small">{food.name}</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
-                    {food.calories} kcal · {round1(Number(food.protein_g))}p · {round1(Number(food.fat_g))}f · {round1(Number(food.carbs_g))}c
+                    {t('healthEntrySummary', {
+                      calories: food.calories,
+                      protein: round1(Number(food.protein_g)),
+                      proteinAbbr: t('healthAbbrProtein'),
+                      fat: round1(Number(food.fat_g)),
+                      fatAbbr: t('healthAbbrFat'),
+                      carbs: round1(Number(food.carbs_g)),
+                      carbsAbbr: t('healthAbbrCarbs'),
+                    })}
                   </ThemedText>
                 </Pressable>
-                <Pressable onPress={() => deleteSavedFood(food).catch(() => showAlert("Couldn't remove saved food"))} hitSlop={8}>
+                <Pressable onPress={() => deleteSavedFood(food).catch(() => showAlert(t('healthAlertRemoveSavedFoodFailedTitle')))} hitSlop={8}>
                   <ThemedText themeColor="textSecondary" style={styles.deleteIcon}>
                     ×
                   </ThemedText>
@@ -296,6 +391,7 @@ const styles = StyleSheet.create({
   macroRow: { gap: Spacing.one },
   macroLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   addCard: { borderRadius: Spacing.four, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, gap: Spacing.two },
+  editingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   input: { fontSize: 16, paddingVertical: Spacing.one, paddingHorizontal: Spacing.two, borderRadius: Spacing.two },
   macroInputsRow: { flexDirection: 'row', gap: Spacing.two },
   macroInput: { flex: 1, minWidth: 0 },
@@ -312,7 +408,10 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
     borderRadius: Spacing.three,
   },
-  entryTextWrapper: { flex: 1, gap: Spacing.half },
+  // minWidth: 0 — same web flexbox fix documented in the other sections'
+  // pillRow/*TextWrapper styles: without it, a long food entry name
+  // won't shrink to wrap and instead overflows past the card's edge.
+  entryTextWrapper: { flex: 1, minWidth: 0, gap: Spacing.half },
   deleteIcon: { fontSize: 24, lineHeight: 24, paddingHorizontal: Spacing.one },
   savedFoodRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.one },
 });

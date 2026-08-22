@@ -1,29 +1,32 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
 import { useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Checkbox } from '@/components/checkbox';
 import { LockIcon, MailIcon } from '@/components/icons/field-icons';
+import { LanguageToggle } from '@/components/language-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '@/constants/legal';
 import { Spacing } from '@/constants/theme';
+import { useTranslation } from '@/hooks/use-language';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
 import { SUPABASE_AUTH_STORAGE_KEY, getAuthCallbackUrl, supabase } from '@/lib/supabase';
 
 type Mode = 'signIn' | 'signUp' | 'forgotPassword';
 
-const COPY: Record<Mode, { title: string; subtitle?: string }> = {
-  signIn: { title: 'Welcome home' },
-  signUp: { title: 'Create your account' },
-  forgotPassword: { title: 'Reset your password', subtitle: "We'll email you a link to get back in." },
-};
-
 export function AuthScreen() {
   const theme = useTheme();
+  const t = useTranslation();
+  const COPY: Record<Mode, { title: string; subtitle?: string }> = {
+    signIn: { title: t('authWelcomeBack') },
+    signUp: { title: t('authCreateAccountTitle') },
+    forgotPassword: { title: t('authResetPasswordTitle'), subtitle: t('authResetPasswordSubtitle') },
+  };
   const [mode, setMode] = useState<Mode>('signIn');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -35,7 +38,7 @@ export function AuthScreen() {
   async function handleSubmit() {
     if (mode === 'forgotPassword') {
       if (!email.trim()) {
-        showAlert('Enter your email');
+        showAlert(t('authEnterEmail'));
         return;
       }
       setLoading(true);
@@ -44,16 +47,16 @@ export function AuthScreen() {
       });
       setLoading(false);
       if (error) {
-        showAlert("Couldn't send reset email", error.message);
+        showAlert(t('authResetEmailErrorTitle'), error.message);
       } else {
-        showAlert('Check your email', `We've sent a password reset link to ${email.trim()}.`);
+        showAlert(t('authCheckEmailTitle'), t('authResetLinkSentBody', { email: email.trim() }));
         setMode('signIn');
       }
       return;
     }
 
     if (!email.trim() || !password) {
-      showAlert('Enter your email and password');
+      showAlert(t('authEnterEmailAndPassword'));
       return;
     }
 
@@ -68,8 +71,8 @@ export function AuthScreen() {
         },
       });
       setLoading(false);
-      if (error) showAlert('Sign up error', error.message);
-      else showAlert('Account created', 'Check your email if confirmation is required, otherwise just sign in.');
+      if (error) showAlert(t('authSignUpErrorTitle'), error.message);
+      else showAlert(t('authAccountCreatedTitle'), t('authAccountCreatedBody'));
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (!error && !rememberMe) {
@@ -79,7 +82,7 @@ export function AuthScreen() {
         await AsyncStorage.removeItem(SUPABASE_AUTH_STORAGE_KEY);
       }
       setLoading(false);
-      if (error) showAlert('Sign in error', error.message);
+      if (error) showAlert(t('authSignInErrorTitle'), error.message);
     }
   }
 
@@ -87,6 +90,7 @@ export function AuthScreen() {
 
   return (
     <ThemedView style={styles.container}>
+      <LanguageToggle />
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
           style={[styles.form, { borderColor: theme.backgroundSelected }]}
@@ -106,12 +110,12 @@ export function AuthScreen() {
             </ThemedText>
           ) : (
             <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-              {mode === 'signUp' ? 'Already have an account? ' : "Don't have an account? "}
+              {mode === 'signUp' ? t('authAlreadyHaveAccount') : t('authNoAccountYet')}
               <ThemedText
                 type="linkPrimary"
                 style={styles.subtitleLink}
                 onPress={() => setMode(mode === 'signUp' ? 'signIn' : 'signUp')}>
-                {mode === 'signUp' ? 'Sign in' : 'Sign up now'}
+                {mode === 'signUp' ? t('authSignInLink') : t('authSignUpLink')}
               </ThemedText>
             </ThemedText>
           )}
@@ -122,7 +126,7 @@ export function AuthScreen() {
                 styles.input,
                 { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text },
               ]}
-              placeholder="Name"
+              placeholder={t('authNamePlaceholder')}
               placeholderTextColor={theme.textSecondary}
               value={fullName}
               onChangeText={setFullName}
@@ -139,7 +143,7 @@ export function AuthScreen() {
                 styles.inputWithIcon,
                 { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text },
               ]}
-              placeholder="Email address"
+              placeholder={t('authEmailPlaceholder')}
               placeholderTextColor={theme.textSecondary}
               autoCapitalize="none"
               keyboardType="email-address"
@@ -160,7 +164,7 @@ export function AuthScreen() {
                   styles.passwordInput,
                   { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text },
                 ]}
-                placeholder="Password"
+                placeholder={t('authPasswordPlaceholder')}
                 placeholderTextColor={theme.textSecondary}
                 secureTextEntry={!showPassword}
                 value={password}
@@ -168,7 +172,7 @@ export function AuthScreen() {
               />
               <Pressable style={styles.passwordToggle} onPress={() => setShowPassword((v) => !v)} hitSlop={8}>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {showPassword ? 'Hide' : 'Show'}
+                  {showPassword ? t('authHidePassword') : t('authShowPassword')}
                 </ThemedText>
               </Pressable>
             </View>
@@ -180,14 +184,14 @@ export function AuthScreen() {
                 <Checkbox checked={rememberMe} onToggle={() => setRememberMe((v) => !v)} />
                 <Pressable onPress={() => setRememberMe((v) => !v)} hitSlop={8}>
                   <ThemedText type="small" themeColor="textSecondary">
-                    Remember me
+                    {t('authRememberMe')}
                   </ThemedText>
                 </Pressable>
               </View>
 
               <Pressable onPress={() => setMode('forgotPassword')} hitSlop={8}>
                 <ThemedText type="small" themeColor="accent">
-                  Forgot password?
+                  {t('authForgotPassword')}
                 </ThemedText>
               </Pressable>
             </View>
@@ -201,15 +205,29 @@ export function AuthScreen() {
               <ActivityIndicator color={theme.background} />
             ) : (
               <ThemedText type="smallBold" themeColor="background">
-                {mode === 'signUp' ? 'Create account' : mode === 'forgotPassword' ? 'Send reset link' : 'Log in'}
+                {mode === 'signUp' ? t('authCreateAccountButton') : mode === 'forgotPassword' ? t('authSendResetLink') : t('authLogIn')}
               </ThemedText>
             )}
           </Pressable>
 
+          {mode === 'signUp' && (
+            <ThemedText type="small" themeColor="textSecondary" style={styles.agreementText}>
+              {t('authAgreementPrefix')}{' '}
+              <ThemedText type="small" themeColor="accent" onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
+                {t('authAgreementPrivacyPolicy')}
+              </ThemedText>{' '}
+              {t('authAgreementJoiner')}{' '}
+              <ThemedText type="small" themeColor="accent" onPress={() => Linking.openURL(TERMS_OF_SERVICE_URL)}>
+                {t('authAgreementTermsOfService')}
+              </ThemedText>
+              .
+            </ThemedText>
+          )}
+
           {mode === 'forgotPassword' && (
             <Pressable onPress={() => setMode('signIn')} hitSlop={8}>
               <ThemedText type="linkPrimary" style={styles.switchModeText}>
-                Back to sign in
+                {t('authBackToSignIn')}
               </ThemedText>
             </Pressable>
           )}
@@ -266,4 +284,5 @@ const styles = StyleSheet.create({
     marginTop: Spacing.two,
   },
   switchModeText: { textAlign: 'center', marginTop: Spacing.one },
+  agreementText: { textAlign: 'center', marginTop: -Spacing.two },
 });

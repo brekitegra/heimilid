@@ -1,15 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
 import { CollapsibleCard } from '@/components/collapsible-card';
+import { LegalLinks } from '@/components/legal-links';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { WebBadge } from '@/components/web-badge';
 import { XpProgressBar } from '@/components/xp-progress-bar';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { BottomTabInset, MaxContentWidth, Spacing, WebTabBarHeight } from '@/constants/theme';
 import { useHousehold } from '@/hooks/use-household';
+import { useLanguage, useTranslation, type Language, type TranslationKey } from '@/hooks/use-language';
 import { useProfile } from '@/hooks/use-profile';
 import { useTheme } from '@/hooks/use-theme';
 import { useThemePreference, type ThemePreference } from '@/hooks/use-theme-preference';
@@ -18,16 +20,23 @@ import { formatKennitala, isValidKennitala } from '@/lib/kennitala';
 import { shareHouseholdInvite } from '@/lib/share-invite';
 import { levelForXp, rankBadge, sortMembersByXp, xpProgressForLevel } from '@/lib/xp';
 
-const APPEARANCE_OPTIONS: { key: ThemePreference; label: string }[] = [
-  { key: 'system', label: 'System' },
-  { key: 'light', label: 'Light' },
-  { key: 'dark', label: 'Dark' },
+const APPEARANCE_OPTIONS: { key: ThemePreference; labelKey: TranslationKey }[] = [
+  { key: 'system', labelKey: 'system' },
+  { key: 'light', labelKey: 'light' },
+  { key: 'dark', labelKey: 'dark' },
+];
+
+const LANGUAGE_OPTIONS: { key: Language; labelKey: TranslationKey }[] = [
+  { key: 'en', labelKey: 'english' },
+  { key: 'is', labelKey: 'icelandic' },
 ];
 
 export default function ProfileScreen() {
   const safeAreaInsets = useSafeAreaInsets();
   const insets = { ...safeAreaInsets, bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three };
   const theme = useTheme();
+  const t = useTranslation();
+  const { language, setLanguage } = useLanguage();
   const { household, members, renameHousehold, removeMember, promoteToOwner } = useHousehold();
   const {
     loading,
@@ -44,12 +53,19 @@ export default function ProfileScreen() {
   } = useProfile();
   const { preference, setPreference } = useThemePreference();
 
-  const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [kennitala, setKennitala] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [justSaved, setJustSaved] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [savingName, setSavingName] = useState(false);
+
+  const [editingPhone, setEditingPhone] = useState(false);
+  const [phoneDraft, setPhoneDraft] = useState('');
+  const [savingPhone, setSavingPhone] = useState(false);
+
+  const [editingKennitala, setEditingKennitala] = useState(false);
+  const [kennitalaDraft, setKennitalaDraft] = useState('');
+  const [savingKennitala, setSavingKennitala] = useState(false);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -71,29 +87,7 @@ export default function ProfileScreen() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deletingAccount, setDeletingAccount] = useState(false);
 
-  // Seed the form once the profile actually loads (keyed on id so a later
-  // re-fetch from our own save/avatar-upload doesn't stomp on further edits
-  // the person is mid-way through typing).
-  useEffect(() => {
-    if (!profile) return;
-    // Seeding local edit state from a freshly (re)loaded profile, not
-    // synchronizing with an external system on every render.
-    /* eslint-disable react-hooks/set-state-in-effect */
-    setFullName(profile.full_name ?? '');
-    setPhone(profile.phone ?? '');
-    setKennitala(profile.kennitala ?? '');
-    /* eslint-enable react-hooks/set-state-in-effect */
-    // Deliberately keyed on id only — a re-fetch after our own save
-    // shouldn't stomp on further edits the person is mid-way through typing.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.id]);
-
-  const kennitalaError = kennitala.trim().length > 0 && !isValidKennitala(kennitala);
-  const isDirty =
-    !!profile &&
-    (fullName.trim() !== (profile.full_name ?? '') ||
-      phone.trim() !== (profile.phone ?? '') ||
-      kennitala.trim() !== (profile.kennitala ?? ''));
+  const kennitalaDraftError = kennitalaDraft.trim().length > 0 && !isValidKennitala(kennitalaDraft);
 
   const myMembership = members.find((m) => m.user_id === profile?.id);
   const isOwner = myMembership?.role === 'owner';
@@ -110,41 +104,68 @@ export default function ProfileScreen() {
   const wouldOrphanHousehold = isOwner && members.length > 1 && !otherOwnerExists;
   const deleteConfirmMatches = deleteConfirmText.trim().toUpperCase() === 'DELETE';
 
-  async function handleSave() {
-    if (kennitalaError) {
-      showAlert('Check your kennitala', "That doesn't look like a valid kennitala.");
-      return;
-    }
-    setSaving(true);
+  function startEditingName() {
+    setNameDraft(profile?.full_name ?? '');
+    setEditingName(true);
+  }
+
+  async function saveNameEdit() {
+    setSavingName(true);
     try {
-      await updateProfile({
-        full_name: fullName.trim() || null,
-        phone: phone.trim() || null,
-        kennitala: kennitala.trim() || null,
-      });
-      setJustSaved(true);
-      setTimeout(() => setJustSaved(false), 2000);
+      await updateProfile({ full_name: nameDraft.trim() || null });
+      setEditingName(false);
     } catch (err) {
-      showAlert("Couldn't save", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('profileSaveNameError'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
-      setSaving(false);
+      setSavingName(false);
     }
   }
 
-  function discardAboutYouChanges() {
-    if (!profile) return;
-    setFullName(profile.full_name ?? '');
-    setPhone(profile.phone ?? '');
-    setKennitala(profile.kennitala ?? '');
+  function startEditingPhone() {
+    setPhoneDraft(profile?.phone ?? '');
+    setEditingPhone(true);
+  }
+
+  async function savePhoneEdit() {
+    setSavingPhone(true);
+    try {
+      await updateProfile({ phone: phoneDraft.trim() || null });
+      setEditingPhone(false);
+    } catch (err) {
+      showAlert(t('profileSavePhoneError'), err instanceof Error ? err.message : t('genericErrorMessage'));
+    } finally {
+      setSavingPhone(false);
+    }
+  }
+
+  function startEditingKennitala() {
+    setKennitalaDraft(profile?.kennitala ?? '');
+    setEditingKennitala(true);
+  }
+
+  async function saveKennitalaEdit() {
+    if (kennitalaDraftError) {
+      showAlert(t('profileKennitalaInvalidTitle'), t('profileKennitalaInvalidBody'));
+      return;
+    }
+    setSavingKennitala(true);
+    try {
+      await updateProfile({ kennitala: kennitalaDraft.trim() || null });
+      setEditingKennitala(false);
+    } catch (err) {
+      showAlert(t('profileSaveKennitalaError'), err instanceof Error ? err.message : t('genericErrorMessage'));
+    } finally {
+      setSavingKennitala(false);
+    }
   }
 
   async function handleChangePassword() {
     if (newPassword.length < 6) {
-      showAlert('Password too short', 'Use at least 6 characters.');
+      showAlert(t('profilePasswordTooShortTitle'), t('profilePasswordTooShortBody'));
       return;
     }
     if (!passwordsMatch) {
-      showAlert("Passwords don't match", 'Double-check the new password and its confirmation.');
+      showAlert(t('passwordsDontMatchTitle'), t('profilePasswordsDontMatchBody'));
       return;
     }
     setChangingPassword(true);
@@ -156,7 +177,7 @@ export default function ProfileScreen() {
       setPasswordJustChanged(true);
       setTimeout(() => setPasswordJustChanged(false), 2000);
     } catch (err) {
-      showAlert("Couldn't change password", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('profileChangePasswordError'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setChangingPassword(false);
     }
@@ -166,22 +187,22 @@ export default function ProfileScreen() {
     try {
       await pickAndUploadAvatar();
     } catch (err) {
-      showAlert("Couldn't update photo", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('profileUpdatePhotoError'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
   function confirmRemoveAvatar() {
-    showAlert('Remove photo', 'Go back to a plain initials icon?', [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('profileRemovePhotoConfirmTitle'), t('profileRemovePhotoConfirmBody'), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Remove',
+        text: t('remove'),
         style: 'destructive',
         onPress: async () => {
           setRemovingAvatar(true);
           try {
             await removeAvatar();
           } catch (err) {
-            showAlert("Couldn't remove photo", err instanceof Error ? err.message : 'Something went wrong');
+            showAlert(t('profileRemovePhotoError'), err instanceof Error ? err.message : t('genericErrorMessage'));
           } finally {
             setRemovingAvatar(false);
           }
@@ -202,9 +223,9 @@ export default function ProfileScreen() {
     try {
       await changeEmail(trimmed);
       setEditingEmail(false);
-      showAlert('Check your inbox', `We've sent a confirmation link to ${trimmed}. Your email stays the same until you click it.`);
+      showAlert(t('profileEmailChangeSentTitle'), t('profileEmailChangeSentBody', { email: trimmed }));
     } catch (err) {
-      showAlert("Couldn't change email", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('profileChangeEmailError'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setSendingEmailChange(false);
     }
@@ -212,7 +233,7 @@ export default function ProfileScreen() {
 
   async function shareInvite() {
     if (!household) return;
-    await shareHouseholdInvite(household);
+    await shareHouseholdInvite(household, language);
   }
 
   function startEditingHouseholdName() {
@@ -227,23 +248,23 @@ export default function ProfileScreen() {
       await renameHousehold(householdNameDraft);
       setEditingHouseholdName(false);
     } catch (err) {
-      showAlert("Couldn't rename household", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('profileRenameHouseholdError'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setRenamingHousehold(false);
     }
   }
 
   function confirmRemoveMember(memberName: string, userId: string) {
-    showAlert('Remove member', `Remove ${memberName} from the household? They'll need the invite code to rejoin.`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('profileRemoveMemberConfirmTitle'), t('profileRemoveMemberConfirmBody', { name: memberName }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Remove',
+        text: t('remove'),
         style: 'destructive',
         onPress: async () => {
           try {
             await removeMember(userId);
           } catch (err) {
-            showAlert("Couldn't remove member", err instanceof Error ? err.message : 'Something went wrong');
+            showAlert(t('profileRemoveMemberError'), err instanceof Error ? err.message : t('genericErrorMessage'));
           }
         },
       },
@@ -251,15 +272,15 @@ export default function ProfileScreen() {
   }
 
   function confirmPromoteToOwner(memberName: string, userId: string) {
-    showAlert('Make owner', `Make ${memberName} an owner? They'll be able to rename the household and remove members too.`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('profileMakeOwner'), t('profileMakeOwnerConfirmBody', { name: memberName }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Make owner',
+        text: t('profileMakeOwner'),
         onPress: async () => {
           try {
             await promoteToOwner(userId);
           } catch (err) {
-            showAlert("Couldn't update role", err instanceof Error ? err.message : 'Something went wrong');
+            showAlert(t('profileUpdateRoleError'), err instanceof Error ? err.message : t('genericErrorMessage'));
           }
         },
       },
@@ -274,28 +295,22 @@ export default function ProfileScreen() {
       // deleteAccount already signs the local session out — _layout.tsx's
       // session listener takes it from here back to the auth screen.
     } catch (err) {
-      showAlert("Couldn't delete account", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('profileDeleteAccountError'), err instanceof Error ? err.message : t('genericErrorMessage'));
       setDeletingAccount(false);
     }
   }
 
-  function confirmLogOut() {
-    showAlert('Log out', 'You can always sign back in.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Log out',
-        style: 'destructive',
-        onPress: async () => {
-          setLoggingOut(true);
-          try {
-            await signOut();
-          } catch (err) {
-            showAlert("Couldn't log out", err instanceof Error ? err.message : 'Something went wrong');
-            setLoggingOut(false);
-          }
-        },
-      },
-    ]);
+  // No "are you sure?" here on purpose — logging out isn't destructive
+  // (you can always sign back in), so it just happens on tap rather than
+  // demanding an extra confirmation click.
+  async function handleLogOut() {
+    setLoggingOut(true);
+    try {
+      await signOut();
+    } catch (err) {
+      showAlert(t('profileLogOutError'), err instanceof Error ? err.message : t('genericErrorMessage'));
+      setLoggingOut(false);
+    }
   }
 
   const contentPlatformStyle = Platform.select({
@@ -306,7 +321,9 @@ export default function ProfileScreen() {
       paddingBottom: insets.bottom,
     },
     web: {
-      paddingTop: Spacing.six,
+      // WebTabBarHeight clears the tab bar's own bottom edge, plus a
+      // small visible gap (see index.tsx's identical comment).
+      paddingTop: WebTabBarHeight + Spacing.two,
       paddingBottom: Spacing.four,
     },
   });
@@ -344,7 +361,7 @@ export default function ProfileScreen() {
             </View>
           </Pressable>
           <ThemedText type="subtitle" style={styles.centerText}>
-            {profile?.full_name?.trim() || 'Unnamed'}
+            {profile?.full_name?.trim() || t('unnamedFallback')}
           </ThemedText>
 
           {editingEmail ? (
@@ -355,7 +372,7 @@ export default function ProfileScreen() {
                   styles.emailInput,
                   { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected, color: theme.text },
                 ]}
-                placeholder="Email address"
+                placeholder={t('authEmailPlaceholder')}
                 placeholderTextColor={theme.textSecondary}
                 autoCapitalize="none"
                 keyboardType="email-address"
@@ -365,12 +382,12 @@ export default function ProfileScreen() {
               />
               <Pressable disabled={sendingEmailChange} onPress={sendEmailChange} hitSlop={8}>
                 <ThemedText type="smallBold" themeColor="accent">
-                  {sendingEmailChange ? '…' : 'Send'}
+                  {sendingEmailChange ? '…' : t('sendButton')}
                 </ThemedText>
               </Pressable>
               <Pressable disabled={sendingEmailChange} onPress={() => setEditingEmail(false)} hitSlop={8}>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Cancel
+                  {t('cancel')}
                 </ThemedText>
               </Pressable>
             </View>
@@ -390,16 +407,16 @@ export default function ProfileScreen() {
           {!!profile?.avatar_url && (
             <Pressable disabled={removingAvatar} onPress={confirmRemoveAvatar} hitSlop={8}>
               <ThemedText type="small" themeColor="textSecondary" style={styles.removePhotoText}>
-                {removingAvatar ? 'Removing…' : 'Remove photo'}
+                {removingAvatar ? t('removingInProgress') : t('profileRemovePhotoConfirmTitle')}
               </ThemedText>
             </Pressable>
           )}
 
           <View style={styles.xpBlock}>
             <View style={styles.xpLabelRow}>
-              <ThemedText type="smallBold">Level {level}</ThemedText>
+              <ThemedText type="smallBold">{t('profileLevelLabel', { level })}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                {xpIntoLevel}/{xpForNextLevel} XP
+                {t('profileXpProgressLabel', { xp: xpIntoLevel, next: xpForNextLevel })}
               </ThemedText>
             </View>
             <XpProgressBar xp={xp} />
@@ -408,89 +425,146 @@ export default function ProfileScreen() {
 
         <ThemedView type="backgroundElement" style={styles.card}>
           <ThemedText type="smallBold" themeColor="textSecondary">
-            ABOUT YOU
+            {t('aboutYou')}
           </ThemedText>
 
           <View style={styles.field}>
             <ThemedText type="small" themeColor="textSecondary">
-              Name
+              {t('name')}
             </ThemedText>
-            <TextInput
-              style={[styles.input, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]}
-              placeholder="Your name"
-              placeholderTextColor={theme.textSecondary}
-              value={fullName}
-              onChangeText={setFullName}
-            />
-          </View>
-
-          <View style={styles.field}>
-            <ThemedText type="small" themeColor="textSecondary">
-              Phone
-            </ThemedText>
-            <TextInput
-              style={[styles.input, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]}
-              placeholder="Phone number"
-              placeholderTextColor={theme.textSecondary}
-              keyboardType="phone-pad"
-              value={phone}
-              onChangeText={setPhone}
-            />
-          </View>
-
-          <View style={styles.field}>
-            <ThemedText type="small" themeColor="textSecondary">
-              Kennitala
-            </ThemedText>
-            <TextInput
-              style={[
-                styles.input,
-                { backgroundColor: theme.background, borderColor: kennitalaError ? '#e5484d' : theme.backgroundSelected, color: theme.text },
-              ]}
-              placeholder="DDMMYY-XXXX"
-              placeholderTextColor={theme.textSecondary}
-              keyboardType="number-pad"
-              value={kennitala}
-              onChangeText={(text) => setKennitala(formatKennitala(text))}
-              maxLength={11}
-            />
-            {kennitalaError && (
-              <ThemedText type="small" themeColor="textSecondary" style={styles.errorText}>
-                That doesn&apos;t look like a valid kennitala.
-              </ThemedText>
+            {editingName ? (
+              <View style={styles.emailEditRow}>
+                <TextInput
+                  style={[styles.input, styles.emailInput, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]}
+                  placeholder={t('profileNamePlaceholder')}
+                  placeholderTextColor={theme.textSecondary}
+                  value={nameDraft}
+                  onChangeText={setNameDraft}
+                  autoFocus
+                />
+                <Pressable disabled={savingName} onPress={saveNameEdit} hitSlop={8}>
+                  <ThemedText type="smallBold" themeColor="accent">
+                    {savingName ? '…' : t('save')}
+                  </ThemedText>
+                </Pressable>
+                <Pressable disabled={savingName} onPress={() => setEditingName(false)} hitSlop={8}>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {t('cancel')}
+                  </ThemedText>
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable onPress={startEditingName} style={({ pressed }) => pressed && styles.pressed}>
+                <View style={styles.emailRow}>
+                  <ThemedText type="default" themeColor="textSecondary">
+                    {profile?.full_name?.trim() || t('notSet')}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    ✎
+                  </ThemedText>
+                </View>
+              </Pressable>
             )}
           </View>
 
-          <View style={styles.saveRow}>
-            <Pressable
-              disabled={!isDirty || saving || kennitalaError}
-              onPress={handleSave}
-              style={({ pressed }) => [styles.saveRowButton, pressed && styles.pressed]}>
-              <ThemedView
-                type="backgroundSelected"
-                style={[styles.saveButton, (!isDirty || kennitalaError) && !saving && styles.saveButtonDisabled]}>
-                {saving ? (
-                  <ActivityIndicator size="small" color={theme.text} />
-                ) : (
-                  <ThemedText type="smallBold">{justSaved ? 'Saved ✓' : 'Save changes'}</ThemedText>
+          <View style={styles.field}>
+            <ThemedText type="small" themeColor="textSecondary">
+              {t('phone')}
+            </ThemedText>
+            {editingPhone ? (
+              <View style={styles.emailEditRow}>
+                <TextInput
+                  style={[styles.input, styles.emailInput, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]}
+                  placeholder={t('profilePhonePlaceholder')}
+                  placeholderTextColor={theme.textSecondary}
+                  keyboardType="phone-pad"
+                  value={phoneDraft}
+                  onChangeText={setPhoneDraft}
+                  autoFocus
+                />
+                <Pressable disabled={savingPhone} onPress={savePhoneEdit} hitSlop={8}>
+                  <ThemedText type="smallBold" themeColor="accent">
+                    {savingPhone ? '…' : t('save')}
+                  </ThemedText>
+                </Pressable>
+                <Pressable disabled={savingPhone} onPress={() => setEditingPhone(false)} hitSlop={8}>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {t('cancel')}
+                  </ThemedText>
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable onPress={startEditingPhone} style={({ pressed }) => pressed && styles.pressed}>
+                <View style={styles.emailRow}>
+                  <ThemedText type="default" themeColor="textSecondary">
+                    {profile?.phone?.trim() || t('notSet')}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    ✎
+                  </ThemedText>
+                </View>
+              </Pressable>
+            )}
+          </View>
+
+          <View style={styles.field}>
+            <ThemedText type="small" themeColor="textSecondary">
+              {t('kennitala')}
+            </ThemedText>
+            {editingKennitala ? (
+              <>
+                <View style={styles.emailEditRow}>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      styles.emailInput,
+                      { backgroundColor: theme.background, borderColor: kennitalaDraftError ? '#e5484d' : theme.backgroundSelected, color: theme.text },
+                    ]}
+                    placeholder={t('profileKennitalaPlaceholder')}
+                    placeholderTextColor={theme.textSecondary}
+                    keyboardType="number-pad"
+                    value={kennitalaDraft}
+                    onChangeText={(text) => setKennitalaDraft(formatKennitala(text))}
+                    maxLength={11}
+                    autoFocus
+                  />
+                  <Pressable disabled={savingKennitala} onPress={saveKennitalaEdit} hitSlop={8}>
+                    <ThemedText type="smallBold" themeColor="accent">
+                      {savingKennitala ? '…' : t('save')}
+                    </ThemedText>
+                  </Pressable>
+                  <Pressable disabled={savingKennitala} onPress={() => setEditingKennitala(false)} hitSlop={8}>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      {t('cancel')}
+                    </ThemedText>
+                  </Pressable>
+                </View>
+                {kennitalaDraftError && (
+                  <ThemedText type="small" themeColor="textSecondary" style={styles.errorText}>
+                    {t('profileKennitalaInvalidBody')}
+                  </ThemedText>
                 )}
-              </ThemedView>
-            </Pressable>
-            {isDirty && !saving && (
-              <Pressable onPress={discardAboutYouChanges} hitSlop={8}>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Discard
-                </ThemedText>
+              </>
+            ) : (
+              <Pressable onPress={startEditingKennitala} style={({ pressed }) => pressed && styles.pressed}>
+                <View style={styles.emailRow}>
+                  <ThemedText type="default" themeColor="textSecondary">
+                    {profile?.kennitala?.trim() || t('notSet')}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    ✎
+                  </ThemedText>
+                </View>
               </Pressable>
             )}
           </View>
         </ThemedView>
 
-        <CollapsibleCard title="PASSWORD">
+        <CollapsibleCard title={t('password')}>
           <View style={styles.field}>
             <TextInput
               style={[styles.input, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]}
-              placeholder="Current password"
+              placeholder={t('profileCurrentPasswordPlaceholder')}
               placeholderTextColor={theme.textSecondary}
               secureTextEntry={!showPasswords}
               value={currentPassword}
@@ -500,7 +574,7 @@ export default function ProfileScreen() {
           <View style={styles.field}>
             <TextInput
               style={[styles.input, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]}
-              placeholder="New password"
+              placeholder={t('newPasswordPlaceholder')}
               placeholderTextColor={theme.textSecondary}
               secureTextEntry={!showPasswords}
               value={newPassword}
@@ -510,7 +584,7 @@ export default function ProfileScreen() {
               type="small"
               themeColor="textSecondary"
               style={newPassword.length > 0 && newPassword.length < 6 && styles.errorText}>
-              At least 6 characters
+              {t('profilePasswordHint')}
             </ThemedText>
           </View>
           <View style={styles.field}>
@@ -523,7 +597,7 @@ export default function ProfileScreen() {
                   color: theme.text,
                 },
               ]}
-              placeholder="Confirm new password"
+              placeholder={t('confirmNewPasswordPlaceholder')}
               placeholderTextColor={theme.textSecondary}
               secureTextEntry={!showPasswords}
               value={confirmPassword}
@@ -531,14 +605,14 @@ export default function ProfileScreen() {
             />
             {confirmPassword.length > 0 && !passwordsMatch && (
               <ThemedText type="small" themeColor="textSecondary" style={styles.errorText}>
-                Passwords don&apos;t match.
+                {t('profilePasswordsDontMatchInline')}
               </ThemedText>
             )}
           </View>
 
           <Pressable onPress={() => setShowPasswords((v) => !v)} hitSlop={8} style={styles.showPasswordsRow}>
             <ThemedText type="small" themeColor="textSecondary">
-              {showPasswords ? 'Hide passwords' : 'Show passwords'}
+              {showPasswords ? t('hidePasswords') : t('showPasswords')}
             </ThemedText>
           </Pressable>
 
@@ -550,13 +624,13 @@ export default function ProfileScreen() {
               {changingPassword ? (
                 <ActivityIndicator size="small" color={theme.text} />
               ) : (
-                <ThemedText type="smallBold">{passwordJustChanged ? 'Updated ✓' : 'Update password'}</ThemedText>
+                <ThemedText type="smallBold">{passwordJustChanged ? t('profilePasswordUpdatedCheck') : t('updatePasswordButton')}</ThemedText>
               )}
             </ThemedView>
           </Pressable>
         </CollapsibleCard>
 
-        <CollapsibleCard title="APPEARANCE">
+        <CollapsibleCard title={t('appearance')}>
           <View style={styles.appearanceRow}>
             {APPEARANCE_OPTIONS.map((option) => {
               const active = preference === option.key;
@@ -566,7 +640,26 @@ export default function ProfileScreen() {
                     type={active ? 'backgroundSelected' : 'background'}
                     style={[styles.appearancePill, active && { borderColor: theme.accent, borderWidth: 1 }]}>
                     <ThemedText type="small" themeColor={active ? 'text' : 'textSecondary'}>
-                      {option.label}
+                      {t(option.labelKey)}
+                    </ThemedText>
+                  </ThemedView>
+                </Pressable>
+              );
+            })}
+          </View>
+        </CollapsibleCard>
+
+        <CollapsibleCard title={t('language')}>
+          <View style={styles.appearanceRow}>
+            {LANGUAGE_OPTIONS.map((option) => {
+              const active = language === option.key;
+              return (
+                <Pressable key={option.key} onPress={() => setLanguage(option.key)} style={styles.appearanceOption}>
+                  <ThemedView
+                    type={active ? 'backgroundSelected' : 'background'}
+                    style={[styles.appearancePill, active && { borderColor: theme.accent, borderWidth: 1 }]}>
+                    <ThemedText type="small" themeColor={active ? 'text' : 'textSecondary'}>
+                      {t(option.labelKey)}
                     </ThemedText>
                   </ThemedView>
                 </Pressable>
@@ -578,7 +671,7 @@ export default function ProfileScreen() {
         {household && (
           <ThemedView type="backgroundElement" style={styles.card}>
             <ThemedText type="smallBold" themeColor="textSecondary">
-              HOUSEHOLD
+              {t('household')}
             </ThemedText>
 
             {editingHouseholdName ? (
@@ -595,12 +688,12 @@ export default function ProfileScreen() {
                 />
                 <Pressable disabled={renamingHousehold} onPress={saveHouseholdName} hitSlop={8}>
                   <ThemedText type="smallBold" themeColor="accent">
-                    {renamingHousehold ? '…' : 'Save'}
+                    {renamingHousehold ? '…' : t('save')}
                   </ThemedText>
                 </Pressable>
                 <Pressable disabled={renamingHousehold} onPress={() => setEditingHouseholdName(false)} hitSlop={8}>
                   <ThemedText type="small" themeColor="textSecondary">
-                    Cancel
+                    {t('cancel')}
                   </ThemedText>
                 </Pressable>
               </View>
@@ -622,7 +715,7 @@ export default function ProfileScreen() {
             <ThemedView type="background" style={styles.inviteRow}>
               <View style={styles.inviteTextColumn}>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Invite code
+                  {t('inviteCode')}
                 </ThemedText>
                 <ThemedText type="smallBold" style={styles.inviteCode}>
                   {household.invite_code}
@@ -630,14 +723,14 @@ export default function ProfileScreen() {
               </View>
               <Pressable onPress={shareInvite} style={({ pressed }) => pressed && styles.pressed}>
                 <ThemedView type="backgroundSelected" style={styles.shareButton}>
-                  <ThemedText type="linkPrimary">Share</ThemedText>
+                  <ThemedText type="linkPrimary">{t('share')}</ThemedText>
                 </ThemedView>
               </Pressable>
             </ThemedView>
 
             <View style={styles.memberList}>
               <ThemedText type="small" themeColor="textSecondary">
-                {members.length >= 2 ? 'LEADERBOARD' : 'YOUR HOUSEHOLD'}
+                {members.length >= 2 ? t('leaderboard') : t('yourHousehold')}
               </ThemedText>
               {leaderboard.map((member, index) => {
                 const isSelf = member.user_id === profile?.id;
@@ -651,32 +744,32 @@ export default function ProfileScreen() {
                     <Avatar url={member.profile?.avatar_url} name={member.profile?.full_name} size={32} />
                     <View style={styles.memberNameColumn}>
                       <ThemedText type="small">
-                        {member.profile?.full_name?.trim() || 'Unnamed'}
-                        {isSelf ? ' (you)' : ''}
-                        {member.role === 'owner' ? ' · Owner' : ''}
+                        {member.profile?.full_name?.trim() || t('unnamedFallback')}
+                        {isSelf ? ` ${t('youSuffix')}` : ''}
+                        {member.role === 'owner' ? ` · ${t('roleOwner')}` : ''}
                       </ThemedText>
                       <ThemedText type="small" themeColor="textSecondary">
-                        Level {levelForXp(member.profile?.xp ?? 0)}
+                        {t('profileLevelLabel', { level: levelForXp(member.profile?.xp ?? 0) })}
                       </ThemedText>
                     </View>
                     {isOwner && !isSelf && (
                       <View style={styles.memberActions}>
                         {member.role !== 'owner' && (
                           <Pressable
-                            onPress={() => confirmPromoteToOwner(member.profile?.full_name?.trim() || 'this member', member.user_id)}
+                            onPress={() => confirmPromoteToOwner(member.profile?.full_name?.trim() || t('someone'), member.user_id)}
                             hitSlop={8}>
                             <ThemedText type="small" themeColor="accent">
-                              Make owner
+                              {t('profileMakeOwner')}
                             </ThemedText>
                           </Pressable>
                         )}
                         <Pressable
-                          onPress={() => confirmRemoveMember(member.profile?.full_name?.trim() || 'this member', member.user_id)}
+                          onPress={() => confirmRemoveMember(member.profile?.full_name?.trim() || t('someone'), member.user_id)}
                           hitSlop={8}
                           style={({ pressed }) => pressed && styles.pressed}>
                           <ThemedView type="backgroundSelected" style={styles.removeButton}>
                             <ThemedText type="small" style={styles.removeText}>
-                              Remove
+                              {t('remove')}
                             </ThemedText>
                           </ThemedView>
                         </Pressable>
@@ -689,31 +782,34 @@ export default function ProfileScreen() {
           </ThemedView>
         )}
 
-        <Pressable disabled={loggingOut} onPress={confirmLogOut} style={({ pressed }) => pressed && styles.pressed}>
+        <Pressable disabled={loggingOut} onPress={handleLogOut} style={({ pressed }) => pressed && styles.pressed}>
           <ThemedText type="link" style={styles.logOutText}>
-            {loggingOut ? 'Logging out…' : 'Log out'}
+            {loggingOut ? t('loggingOutInProgress') : t('logOut')}
           </ThemedText>
         </Pressable>
 
-        <CollapsibleCard title="DANGER ZONE">
+        <View style={styles.legalRow}>
+          <LegalLinks />
+        </View>
+
+        <CollapsibleCard title={t('dangerZone')}>
           <ThemedText type="small" themeColor="textSecondary">
-            Permanently deletes your account and profile. This can&apos;t be undone.
+            {t('profileDangerZoneWarning')}
           </ThemedText>
 
           {wouldOrphanHousehold ? (
             <ThemedText type="small" style={styles.errorText}>
-              You&apos;re the only owner of &quot;{household?.name}&quot; and other people are still in it. Make someone
-              else an owner first (in the leaderboard above) so the household isn&apos;t left without one.
+              {t('profileWouldOrphanHouseholdWarning', { name: household?.name ?? '' })}
             </ThemedText>
           ) : (
             <>
               <View style={styles.field}>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Type DELETE to confirm
+                  {t('profileTypeDeleteToConfirm')}
                 </ThemedText>
                 <TextInput
                   style={[styles.input, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]}
-                  placeholder="DELETE"
+                  placeholder={t('profileDeletePlaceholder')}
                   placeholderTextColor={theme.textSecondary}
                   autoCapitalize="characters"
                   value={deleteConfirmText}
@@ -729,7 +825,7 @@ export default function ProfileScreen() {
                     <ActivityIndicator size="small" color="#ffffff" />
                   ) : (
                     <ThemedText type="smallBold" style={styles.deleteButtonText}>
-                      Delete my account forever
+                      {t('profileDeleteAccountButton')}
                     </ThemedText>
                   )}
                 </ThemedView>
@@ -748,7 +844,18 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scrollView: { flex: 1 },
   contentContainer: { flexDirection: 'row', justifyContent: 'center' },
-  container: { maxWidth: MaxContentWidth, flexGrow: 1, gap: Spacing.four, paddingHorizontal: Spacing.four },
+  // flexShrink: 1 + minWidth: 0 — this is a flexGrow:1 child of a row
+  // (contentContainer). RN defaults flexShrink to 0 for a plain View
+  // (unlike raw CSS, which defaults to 1), so without it explicitly this
+  // column never shrinks below its widest descendant's natural content
+  // width no matter what minWidth says (e.g. a long translated sentence
+  // deep inside a CollapsibleCard) — and minWidth: 0 is needed too, since
+  // web's default min-width:auto on flex items blocks shrinking even with
+  // flexShrink set. Same two-part gotcha documented throughout this app
+  // (paired TextInputs, the web tab bar). Without both, that one long
+  // line silently stretches this whole column past the viewport instead
+  // of wrapping.
+  container: { maxWidth: MaxContentWidth, flexGrow: 1, flexShrink: 1, minWidth: 0, gap: Spacing.four, paddingHorizontal: Spacing.four },
   header: { alignItems: 'center', gap: Spacing.two, paddingTop: Spacing.three },
   centerText: { textAlign: 'center' },
   avatarBadge: {
@@ -776,11 +883,15 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.7 },
   saveButton: { alignItems: 'center', paddingVertical: Spacing.three, borderRadius: 999 },
   saveButtonDisabled: { opacity: 0.5 },
-  saveRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
-  saveRowButton: { flex: 1 },
   showPasswordsRow: { alignSelf: 'flex-start' },
   appearanceRow: { flexDirection: 'row', gap: Spacing.two },
-  appearanceOption: { flex: 1 },
+  // minWidth: 0 — web's default min-width:auto on flex items blocks
+  // shrinking below content size otherwise (the same gotcha documented
+  // throughout this app) — without it, the longest label (e.g.
+  // "Kerfi"/"System") refuses to shrink and pushes the other two pills
+  // out past the row's edge instead of all three dividing the space
+  // evenly.
+  appearanceOption: { flex: 1, minWidth: 0 },
   appearancePill: { alignItems: 'center', paddingVertical: Spacing.two, borderRadius: Spacing.three },
   householdNameRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   householdNameEditRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
@@ -803,6 +914,7 @@ const styles = StyleSheet.create({
   removeButton: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, borderRadius: Spacing.five },
   removeText: { color: '#e5484d' },
   logOutText: { textAlign: 'center', color: '#e5484d' },
+  legalRow: { alignItems: 'center' },
   deleteButton: { alignItems: 'center', paddingVertical: Spacing.three, borderRadius: 999, backgroundColor: '#e5484d' },
   deleteButtonText: { color: '#ffffff' },
 });

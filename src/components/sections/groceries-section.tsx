@@ -10,16 +10,20 @@ import { NavArrowButton } from '@/components/nav-arrow-button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
+import { formatMonthDay } from '@/lib/date-locale';
 import { startOfWeek, toLocalISODate } from '@/lib/date-format';
 import { useDelayedBlur } from '@/hooks/use-delayed-blur';
 import { useGrocery } from '@/hooks/use-grocery';
 import { useHousehold } from '@/hooks/use-household';
+import { useLanguage, useTranslation, type TranslationKey } from '@/hooks/use-language';
 import { useMealPlans } from '@/hooks/use-meal-plans';
 import { useRecipes } from '@/hooks/use-recipes';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
-import { categoryEmoji, categoryLabel, GROCERY_CATEGORIES, groupByCategory } from '@/lib/grocery-format';
-import { RECIPE_CATEGORIES, recipeCategoryLabel } from '@/lib/recipe-format';
+import { isSameName } from '@/lib/duplicate-check';
+import { categoryEmoji, GROCERY_CATEGORIES, groupByCategory } from '@/lib/grocery-format';
+import { sanitizeNumericInput } from '@/lib/number-format';
+import { RECIPE_CATEGORIES } from '@/lib/recipe-format';
 import type { GroceryCategory, GroceryItem, GroceryList } from '@/types/grocery';
 import type { MealPlan } from '@/types/meal-plan';
 import type { Recipe, RecipeCategory } from '@/types/recipe';
@@ -31,9 +35,41 @@ type IngredientDraft = { name: string; quantity: string };
 
 const EMPTY_INGREDIENT: IngredientDraft = { name: '', quantity: '' };
 
-const WEEKDAY_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const WEEKDAY_KEYS: TranslationKey[] = [
+  'weekdayMonday',
+  'weekdayTuesday',
+  'weekdayWednesday',
+  'weekdayThursday',
+  'weekdayFriday',
+  'weekdaySaturday',
+  'weekdaySunday',
+];
+
+const GROCERY_CATEGORY_KEY: Record<GroceryCategory, TranslationKey> = {
+  produce: 'groceryCategoryProduce',
+  dairy: 'groceryCategoryDairy',
+  meat: 'groceryCategoryMeat',
+  bakery: 'groceryCategoryBakery',
+  frozen: 'groceryCategoryFrozen',
+  pantry: 'groceryCategoryPantry',
+  beverages: 'groceryCategoryBeverages',
+  household: 'groceryCategoryHousehold',
+  pets: 'groceryCategoryPets',
+  other: 'groceryCategoryOther',
+};
+
+const RECIPE_CATEGORY_KEY: Record<RecipeCategory, TranslationKey> = {
+  breakfast: 'recipeCategoryBreakfast',
+  lunch: 'recipeCategoryLunch',
+  dinner: 'recipeCategoryDinner',
+  dessert: 'recipeCategoryDessert',
+  snack: 'recipeCategorySnack',
+  other: 'recipeCategoryOther',
+};
 
 export function GroceriesSection({ onBack }: { onBack: () => void }) {
+  const t = useTranslation();
+  const { language } = useLanguage();
   const theme = useTheme();
   const { members } = useHousehold();
   const grocery = useGrocery();
@@ -114,13 +150,13 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
   const weekLabel = (() => {
     const start = new Date(`${weekDates[0]}T00:00:00`);
     const end = new Date(`${weekDates[6]}T00:00:00`);
-    const fmt = (d: Date) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const fmt = (d: Date) => formatMonthDay(d, language);
     return `${fmt(start)} – ${fmt(end)}`;
   })();
 
   function memberName(userId: string | null) {
     if (!userId) return null;
-    if (userId === grocery.currentUserId) return 'you';
+    if (userId === grocery.currentUserId) return t('you');
     return members.find((m) => m.user_id === userId)?.profile?.full_name?.trim() || null;
   }
 
@@ -190,6 +226,11 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
 
   async function handleSubmitItem() {
     if (!itemName.trim()) return;
+    const duplicate = grocery.items.find((i) => i.id !== editingItemId && !i.is_checked && isSameName(i.name, itemName));
+    if (duplicate) {
+      showAlert(t('groceryDuplicateTitle'), t('groceryDuplicateMessage', { name: duplicate.name }));
+      return;
+    }
     setAddingItem(true);
     try {
       const input = { name: itemName, quantity: itemQuantity.trim() || null, category: itemCategory };
@@ -201,7 +242,10 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
       }
       resetItemForm();
     } catch (err) {
-      showAlert(editingItemId ? "Couldn't save changes" : "Couldn't add item", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(
+        editingItemId ? t('grocerySaveErrorTitle') : t('groceryAddItemErrorTitle'),
+        err instanceof Error ? err.message : t('genericErrorMessage')
+      );
     } finally {
       setAddingItem(false);
     }
@@ -209,22 +253,26 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
 
   function handleToggleItem(item: GroceryItem) {
     grocery.toggleItem(item).catch((err) => {
-      showAlert("Couldn't update item", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('groceryUpdateItemErrorTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     });
   }
 
   function confirmDeleteItem(item: GroceryItem) {
     if (editingItemId === item.id) resetItemForm();
     grocery.deleteItem(item).catch((err) => {
-      showAlert("Couldn't remove item", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('groceryRemoveItemErrorTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     });
   }
 
   function confirmClearChecked() {
-    showAlert('Clear checked items', `Remove ${checkedCount} checked ${checkedCount === 1 ? 'item' : 'items'} from the list?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Clear', style: 'destructive', onPress: () => grocery.clearCheckedItems() },
-    ]);
+    showAlert(
+      t('groceryClearCheckedConfirmTitle'),
+      t(checkedCount === 1 ? 'groceryClearCheckedConfirmMessageOne' : 'groceryClearCheckedConfirmMessageOther', { count: checkedCount }),
+      [
+        { text: t('cancel'), style: 'cancel' },
+        { text: t('clear'), style: 'destructive', onPress: () => grocery.clearCheckedItems() },
+      ]
+    );
   }
 
   async function handleSaveTemplate() {
@@ -234,7 +282,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
       await grocery.saveActiveListAsTemplate(templateNameDraft);
       setTemplateNameDraft('');
     } catch (err) {
-      showAlert("Couldn't save list", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('groceryTemplateSaveErrorTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setSavingTemplate(false);
     }
@@ -243,30 +291,35 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
   async function handleApplyTemplate(template: TemplateWithItems) {
     try {
       const added = await grocery.applyTemplate(template);
-      showAlert(added > 0 ? `Added ${added} item${added === 1 ? '' : 's'}` : 'Already on your list', undefined);
+      showAlert(added > 0 ? t(added === 1 ? 'groceryItemsAddedMessageOne' : 'groceryItemsAddedMessageOther', { count: added }) : t('groceryDuplicateTitle'), undefined);
     } catch (err) {
-      showAlert("Couldn't add list", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('groceryTemplateApplyErrorTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
   async function handleAddActiveListToTemplate(template: TemplateWithItems) {
     try {
       const added = await grocery.addActiveListToTemplate(template);
-      showAlert(added > 0 ? `Added ${added} item${added === 1 ? '' : 's'} to "${template.name}"` : `Already on "${template.name}"`, undefined);
+      showAlert(
+        added > 0
+          ? t('groceryItemsAddedToTemplateMessage', { count: added, name: template.name })
+          : t('groceryAlreadyOnTemplateMessage', { name: template.name }),
+        undefined
+      );
     } catch (err) {
-      showAlert("Couldn't update list", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('groceryTemplateUpdateErrorTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
   function confirmDeleteTemplate(template: TemplateWithItems) {
-    showAlert('Delete saved list', `Remove "${template.name}"? This won't affect your current list.`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('groceryDeleteTemplateConfirmTitle'), t('groceryDeleteTemplateConfirmMessage', { name: template.name }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('delete'),
         style: 'destructive',
         onPress: () => {
           if (expandedTemplateId === template.id) setExpandedTemplateId(null);
-          grocery.deleteTemplate(template).catch(() => showAlert("Couldn't delete list"));
+          grocery.deleteTemplate(template).catch(() => showAlert(t('groceryDeleteTemplateErrorTitle')));
         },
       },
     ]);
@@ -291,7 +344,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
     try {
       await grocery.renameTemplate(template, templateRename);
     } catch (err) {
-      showAlert("Couldn't rename list", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('groceryRenameTemplateErrorTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setSavingTemplateRename(false);
     }
@@ -324,7 +377,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
       }
       resetTemplateItemForm();
     } catch (err) {
-      showAlert("Couldn't update list", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('groceryTemplateUpdateErrorTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setSavingTemplateItem(false);
     }
@@ -332,7 +385,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
 
   function confirmDeleteTemplateItem(template: TemplateWithItems, item: GroceryItem) {
     if (editingTemplateItemId === item.id) resetTemplateItemForm();
-    grocery.deleteTemplateItem(template, item).catch(() => showAlert("Couldn't remove item"));
+    grocery.deleteTemplateItem(template, item).catch(() => showAlert(t('groceryRemoveItemErrorTitle')));
   }
 
   async function handleAddStaple() {
@@ -343,7 +396,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
       setStapleName('');
       setStapleCategory('other');
     } catch (err) {
-      showAlert("Couldn't add staple", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('groceryAddStapleErrorTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setAddingStaple(false);
     }
@@ -352,9 +405,9 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
   async function handleAddAllStaples() {
     try {
       const added = await grocery.addAllStaplesToActiveList();
-      showAlert(added > 0 ? `Added ${added} item${added === 1 ? '' : 's'}` : 'Already on your list', undefined);
+      showAlert(added > 0 ? t(added === 1 ? 'groceryItemsAddedMessageOne' : 'groceryItemsAddedMessageOther', { count: added }) : t('groceryDuplicateTitle'), undefined);
     } catch (err) {
-      showAlert("Couldn't add staples", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('groceryAddStaplesErrorTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
@@ -391,21 +444,24 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
       }
       resetRecipeForm();
     } catch (err) {
-      showAlert(editingRecipeId ? "Couldn't save changes" : "Couldn't add recipe", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(
+        editingRecipeId ? t('recipeSaveErrorTitle') : t('recipeAddErrorTitle'),
+        err instanceof Error ? err.message : t('genericErrorMessage')
+      );
     } finally {
       setSubmittingRecipe(false);
     }
   }
 
   function confirmDeleteRecipe(recipe: Recipe) {
-    showAlert('Delete recipe', `Remove "${recipe.title}"?`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('recipeDeleteConfirmTitle'), t('recipeDeleteConfirmMessage', { title: recipe.title }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('delete'),
         style: 'destructive',
         onPress: () => {
           if (editingRecipeId === recipe.id) resetRecipeForm();
-          recipesHook.deleteRecipe(recipe).catch(() => showAlert("Couldn't delete recipe"));
+          recipesHook.deleteRecipe(recipe).catch(() => showAlert(t('recipeDeleteErrorTitle')));
         },
       },
     ]);
@@ -417,9 +473,9 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
       const added = await grocery.addItemsToActiveList(
         recipe.ingredients.map((i) => ({ name: i.name, quantity: i.quantity, category: i.category ?? 'other' }))
       );
-      showAlert(added > 0 ? `Added ${added} item${added === 1 ? '' : 's'} to your list` : 'Already on your list', undefined);
+      showAlert(added > 0 ? t(added === 1 ? 'groceryIngredientsAddedMessageOne' : 'groceryIngredientsAddedMessageOther', { count: added }) : t('groceryDuplicateTitle'), undefined);
     } catch (err) {
-      showAlert("Couldn't add ingredients", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('groceryAddIngredientsErrorTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
@@ -455,7 +511,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
       await mealPlans.setMeal({ planDate: mealComposerDate, recipeId: recipe.id, title: null });
       closeMealComposer();
     } catch (err) {
-      showAlert("Couldn't plan dinner", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('mealPlanSaveErrorTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setMealSubmitting(false);
     }
@@ -468,21 +524,21 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
       await mealPlans.setMeal({ planDate: mealComposerDate, recipeId: null, title: mealCustomTitle.trim() });
       closeMealComposer();
     } catch (err) {
-      showAlert("Couldn't plan dinner", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('mealPlanSaveErrorTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setMealSubmitting(false);
     }
   }
 
   function confirmClearMeal(plan: MealPlan) {
-    showAlert('Remove planned dinner', `Clear the plan for this day?`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('mealPlanClearConfirmTitle'), t('mealPlanClearConfirmMessage'), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Remove',
+        text: t('remove'),
         style: 'destructive',
         onPress: () => {
           if (mealComposerDate === plan.plan_date) closeMealComposer();
-          mealPlans.clearMeal(plan).catch(() => showAlert("Couldn't remove plan"));
+          mealPlans.clearMeal(plan).catch(() => showAlert(t('mealPlanClearErrorTitle')));
         },
       },
     ]);
@@ -495,30 +551,31 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
       return (recipe?.ingredients ?? []).map((i) => ({ name: i.name, quantity: i.quantity, category: i.category ?? 'other' }));
     });
     if (weekIngredients.length === 0) {
-      showAlert('Nothing to add', 'Plan a dinner with a saved recipe first.');
+      showAlert(t('mealPlanNothingToAddTitle'), t('mealPlanNothingToAddMessage'));
       return;
     }
     setAddingWeekIngredients(true);
     try {
       const added = await grocery.addItemsToActiveList(weekIngredients);
-      showAlert(added > 0 ? `Added ${added} item${added === 1 ? '' : 's'} to your list` : 'Already on your list', undefined);
+      showAlert(added > 0 ? t(added === 1 ? 'groceryIngredientsAddedMessageOne' : 'groceryIngredientsAddedMessageOther', { count: added }) : t('groceryDuplicateTitle'), undefined);
     } catch (err) {
-      showAlert("Couldn't add ingredients", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('groceryAddIngredientsErrorTitle'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setAddingWeekIngredients(false);
     }
   }
 
-  function renderCategoryPills(selected: GroceryCategory, onSelect: (c: GroceryCategory) => void) {
+  function renderCategoryPills(selected: GroceryCategory, onSelect: (c: GroceryCategory) => void, onPressIn?: () => void) {
     return (
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
         {GROCERY_CATEGORIES.map((c) => (
           <Pressable
             key={c.value}
+            onPressIn={onPressIn}
             onPress={() => onSelect(c.value)}
             style={[styles.pill, { backgroundColor: theme.backgroundSelected }, selected === c.value && { backgroundColor: theme.accent }]}>
             <ThemedText type="small" themeColor={selected === c.value ? 'background' : 'textSecondary'}>
-              {c.emoji} {c.label}
+              {c.emoji} {t(GROCERY_CATEGORY_KEY[c.value] ?? 'groceryCategoryOther')}
             </ThemedText>
           </Pressable>
         ))}
@@ -529,11 +586,11 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <BackButton label="Home" onPress={onBack} />
+        <BackButton label={t('home')} onPress={onBack} />
         {mode === 'list' && checkedCount > 0 && (
           <Pressable onPress={confirmClearChecked} hitSlop={8}>
             <ThemedText type="small" themeColor="textSecondary">
-              Clear checked ({checkedCount})
+              {t('groceryClearChecked', { count: checkedCount })}
             </ThemedText>
           </Pressable>
         )}
@@ -546,7 +603,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
             onPress={() => setMode(m)}
             style={[styles.pill, styles.modePill, { backgroundColor: theme.backgroundSelected }, mode === m && { backgroundColor: theme.accent }]}>
             <ThemedText type="small" themeColor={mode === m ? 'background' : 'textSecondary'}>
-              {m === 'list' ? 'Grocery List' : m === 'recipes' ? 'Recipes' : 'Dinner Plan'}
+              {m === 'list' ? t('groceryModeList') : m === 'recipes' ? t('groceryModeRecipes') : t('groceryModePlan')}
             </ThemedText>
           </Pressable>
         ))}
@@ -558,17 +615,17 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
             <ThemedView type="backgroundElement" style={styles.addCard}>
               {editingItemId && (
                 <View style={styles.editingRow}>
-                  <ThemedText type="smallBold">Edit item</ThemedText>
+                  <ThemedText type="smallBold">{t('groceryEditItemHeading')}</ThemedText>
                   <Pressable onPress={resetItemForm} hitSlop={8}>
                     <ThemedText type="small" themeColor="accent">
-                      Cancel
+                      {t('cancel')}
                     </ThemedText>
                   </Pressable>
                 </View>
               )}
               <TextInput
                 style={[styles.input, { color: theme.text }]}
-                placeholder="Add an item…"
+                placeholder={t('groceryAddItemPlaceholder')}
                 placeholderTextColor={theme.textSecondary}
                 value={itemName}
                 onChangeText={handleItemNameChange}
@@ -579,13 +636,15 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
               />
               {isItemComposerExpanded && (
                 <>
-                  {renderCategoryPills(itemCategory, handleItemCategoryPick)}
+                  {renderCategoryPills(itemCategory, handleItemCategoryPick, itemComposerBlur.onFocus)}
                   <TextInput
                     style={[styles.input, styles.quantityInput, { color: theme.text, backgroundColor: theme.backgroundSelected }]}
-                    placeholder="Quantity (optional)"
+                    placeholder={t('groceryQuantityPlaceholder')}
                     placeholderTextColor={theme.textSecondary}
                     value={itemQuantity}
                     onChangeText={setItemQuantity}
+                    onFocus={itemComposerBlur.onFocus}
+                    onBlur={itemComposerBlur.onBlur}
                   />
                   <Pressable
                     style={[styles.addButton, { backgroundColor: theme.accent, opacity: itemName.trim() && !addingItem ? 1 : 0.5 }]}
@@ -595,7 +654,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                       <ActivityIndicator color={theme.background} />
                     ) : (
                       <ThemedText type="smallBold" themeColor="background">
-                        {editingItemId ? 'Save changes' : 'Add'}
+                        {editingItemId ? t('saveChanges') : t('add')}
                       </ThemedText>
                     )}
                   </Pressable>
@@ -610,7 +669,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
             <View style={styles.emptyState}>
               <GroceriesIcon color={theme.backgroundSelected} size={40} />
               <ThemedText themeColor="textSecondary" style={styles.emptyText}>
-                No items yet — add your first one above.
+                {t('groceryEmptyState')}
               </ThemedText>
             </View>
           )}
@@ -618,7 +677,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
           {groupedItems.map(({ category, items }) => (
             <View key={category} style={styles.categoryGroup}>
               <ThemedText type="small" themeColor="textSecondary" style={styles.categoryHeader}>
-                {categoryEmoji(category)} {categoryLabel(category).toUpperCase()}
+                {categoryEmoji(category)} {t(GROCERY_CATEGORY_KEY[category] ?? 'groceryCategoryOther').toUpperCase()}
               </ThemedText>
               {items.map((item) => {
                 const checkedByName = item.is_checked ? memberName(item.checked_by) : null;
@@ -640,7 +699,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                           <ThemedText type="small" themeColor="textSecondary">
                             {item.quantity}
                             {item.quantity && checkedByName ? ' · ' : ''}
-                            {checkedByName ? `Checked by ${checkedByName}` : ''}
+                            {checkedByName ? t('groceryCheckedBy', { name: checkedByName }) : ''}
                           </ThemedText>
                         )}
                       </Pressable>
@@ -656,11 +715,11 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
             </View>
           ))}
 
-          <CollapsibleCard title="SAVED LISTS">
+          <CollapsibleCard title={t('grocerySavedListsHeading')}>
             <View style={styles.saveTemplateRow}>
               <TextInput
                 style={[styles.input, styles.saveTemplateInput, { color: theme.text, backgroundColor: theme.background }]}
-                placeholder="Name this list…"
+                placeholder={t('groceryTemplateNamePlaceholder')}
                 placeholderTextColor={theme.textSecondary}
                 value={templateNameDraft}
                 onChangeText={setTemplateNameDraft}
@@ -672,14 +731,14 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                 <ThemedText
                   type="smallBold"
                   themeColor={templateNameDraft.trim() && grocery.items.length > 0 ? 'accent' : 'textSecondary'}>
-                  {savingTemplate ? '…' : 'Save'}
+                  {savingTemplate ? '…' : t('save')}
                 </ThemedText>
               </Pressable>
             </View>
 
             {grocery.templates.length === 0 ? (
               <ThemedText type="small" themeColor="textSecondary">
-                No saved lists yet — save your current list above to reuse it later.
+                {t('groceryTemplatesEmptyState')}
               </ThemedText>
             ) : (
               grocery.templates.map((template) => {
@@ -690,12 +749,12 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                       <Pressable style={styles.templateNameColumn} onPress={() => toggleExpandTemplate(template)}>
                         <ThemedText type="small">{template.name}</ThemedText>
                         <ThemedText type="small" themeColor="textSecondary">
-                          {template.items.length} {template.items.length === 1 ? 'item' : 'items'}
+                          {t(template.items.length === 1 ? 'groceryItemCountOne' : 'groceryItemCountOther', { count: template.items.length })}
                         </ThemedText>
                       </Pressable>
                       <Pressable onPress={() => handleApplyTemplate(template)} hitSlop={8}>
                         <ThemedView type="backgroundSelected" style={styles.useButton}>
-                          <ThemedText type="small">Use</ThemedText>
+                          <ThemedText type="small">{t('groceryUseTemplate')}</ThemedText>
                         </ThemedView>
                       </Pressable>
                       <Pressable onPress={() => confirmDeleteTemplate(template)} hitSlop={8}>
@@ -718,7 +777,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                             onPress={() => handleRenameTemplate(template)}
                             hitSlop={8}>
                             <ThemedText type="smallBold" themeColor="accent">
-                              {savingTemplateRename ? '…' : 'Rename'}
+                              {savingTemplateRename ? '…' : t('groceryRenameTemplate')}
                             </ThemedText>
                           </Pressable>
                         </View>
@@ -726,7 +785,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                         {grocery.items.length > 0 && (
                           <Pressable onPress={() => handleAddActiveListToTemplate(template)} style={({ pressed }) => pressed && styles.pressed}>
                             <ThemedView type="background" style={styles.addCurrentListButton}>
-                              <ThemedText type="small">+ Add current list&apos;s items to this list</ThemedText>
+                              <ThemedText type="small">{t('groceryAddCurrentListToTemplate')}</ThemedText>
                             </ThemedView>
                           </Pressable>
                         )}
@@ -749,19 +808,19 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
 
                         <View style={styles.editingRow}>
                           <ThemedText type="small" themeColor="textSecondary">
-                            {editingTemplateItemId ? 'Edit item' : 'Add item'}
+                            {editingTemplateItemId ? t('groceryEditItemHeading') : t('groceryAddItemHeading')}
                           </ThemedText>
                           {editingTemplateItemId && (
                             <Pressable onPress={resetTemplateItemForm} hitSlop={8}>
                               <ThemedText type="small" themeColor="accent">
-                                Cancel
+                                {t('cancel')}
                               </ThemedText>
                             </Pressable>
                           )}
                         </View>
                         <TextInput
                           style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
-                          placeholder="Item name"
+                          placeholder={t('groceryItemNamePlaceholder')}
                           placeholderTextColor={theme.textSecondary}
                           value={templateItemName}
                           onChangeText={setTemplateItemName}
@@ -769,7 +828,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                         {renderCategoryPills(templateItemCategory, setTemplateItemCategory)}
                         <TextInput
                           style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
-                          placeholder="Quantity (optional)"
+                          placeholder={t('groceryQuantityPlaceholder')}
                           placeholderTextColor={theme.textSecondary}
                           value={templateItemQuantity}
                           onChangeText={setTemplateItemQuantity}
@@ -782,7 +841,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                           disabled={!templateItemName.trim() || savingTemplateItem}
                           onPress={() => handleSubmitTemplateItem(template)}>
                           <ThemedText type="smallBold" themeColor="background">
-                            {editingTemplateItemId ? 'Save changes' : 'Add item'}
+                            {editingTemplateItemId ? t('saveChanges') : t('groceryAddItemHeading')}
                           </ThemedText>
                         </Pressable>
                       </View>
@@ -793,7 +852,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
             )}
           </CollapsibleCard>
 
-          <CollapsibleCard title="STAPLES">
+          <CollapsibleCard title={t('groceryStaplesHeading')}>
             <Pressable
               disabled={grocery.staples.length === 0}
               onPress={handleAddAllStaples}
@@ -801,13 +860,13 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
               <ThemedView
                 type="backgroundSelected"
                 style={[styles.addButton, grocery.staples.length === 0 && styles.saveButtonDisabled]}>
-                <ThemedText type="smallBold">Add all staples to list</ThemedText>
+                <ThemedText type="smallBold">{t('groceryAddAllStaples')}</ThemedText>
               </ThemedView>
             </Pressable>
 
             <TextInput
               style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
-              placeholder="Add a staple (milk, eggs…)"
+              placeholder={t('groceryStaplePlaceholder')}
               placeholderTextColor={theme.textSecondary}
               value={stapleName}
               onChangeText={setStapleName}
@@ -822,7 +881,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                   disabled={addingStaple}
                   onPress={handleAddStaple}>
                   <ThemedText type="smallBold" themeColor="background">
-                    Add staple
+                    {t('groceryAddStapleButton')}
                   </ThemedText>
                 </Pressable>
               </>
@@ -830,7 +889,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
 
             {grocery.staples.length === 0 ? (
               <ThemedText type="small" themeColor="textSecondary">
-                No staples yet — add items you always need.
+                {t('groceryStaplesEmptyState')}
               </ThemedText>
             ) : (
               grocery.staples.map((staple) => (
@@ -838,7 +897,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                   <ThemedText type="small" style={styles.templateNameColumn}>
                     {categoryEmoji(staple.category)} {staple.name}
                   </ThemedText>
-                  <Pressable onPress={() => grocery.deleteStaple(staple).catch(() => showAlert("Couldn't remove staple"))} hitSlop={8}>
+                  <Pressable onPress={() => grocery.deleteStaple(staple).catch(() => showAlert(t('groceryRemoveStapleErrorTitle')))} hitSlop={8}>
                     <ThemedText themeColor="textSecondary" style={styles.deleteIcon}>
                       ×
                     </ThemedText>
@@ -854,17 +913,17 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
             <ThemedView type="backgroundElement" style={styles.addCard}>
               {editingRecipeId && (
                 <View style={styles.editingRow}>
-                  <ThemedText type="smallBold">Edit recipe</ThemedText>
+                  <ThemedText type="smallBold">{t('recipeEditHeading')}</ThemedText>
                   <Pressable onPress={resetRecipeForm} hitSlop={8}>
                     <ThemedText type="small" themeColor="accent">
-                      Cancel
+                      {t('cancel')}
                     </ThemedText>
                   </Pressable>
                 </View>
               )}
               <TextInput
                 style={[styles.input, { color: theme.text }]}
-                placeholder="Recipe title…"
+                placeholder={t('recipeTitlePlaceholder')}
                 placeholderTextColor={theme.textSecondary}
                 value={recipeTitle}
                 onChangeText={setRecipeTitle}
@@ -878,6 +937,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                     {RECIPE_CATEGORIES.map((c) => (
                       <Pressable
                         key={c.value}
+                        onPressIn={recipeComposerBlur.onFocus}
                         onPress={() => setRecipeCategory(c.value)}
                         style={[
                           styles.pill,
@@ -885,7 +945,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                           recipeCategory === c.value && { backgroundColor: theme.accent },
                         ]}>
                         <ThemedText type="small" themeColor={recipeCategory === c.value ? 'background' : 'textSecondary'}>
-                          {c.label}
+                          {t(RECIPE_CATEGORY_KEY[c.value] ?? 'recipeCategoryOther')}
                         </ThemedText>
                       </Pressable>
                     ))}
@@ -893,51 +953,59 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
 
                   <TextInput
                     style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSelected }]}
-                    placeholder="Servings (optional)"
+                    placeholder={t('recipeServingsPlaceholder')}
                     placeholderTextColor={theme.textSecondary}
                     keyboardType="number-pad"
                     value={recipeServings}
-                    onChangeText={setRecipeServings}
+                    onChangeText={(v) => setRecipeServings(sanitizeNumericInput(v))}
+                    onFocus={recipeComposerBlur.onFocus}
+                    onBlur={recipeComposerBlur.onBlur}
                   />
 
                   <ThemedText type="small" themeColor="textSecondary">
-                    Ingredients
+                    {t('recipeIngredientsLabel')}
                   </ThemedText>
                   {ingredientDrafts.map((draft, index) => (
                     <View key={index} style={styles.ingredientRow}>
                       <TextInput
                         style={[styles.input, styles.ingredientNameInput, { color: theme.text, backgroundColor: theme.backgroundSelected }]}
-                        placeholder="Ingredient"
+                        placeholder={t('recipeIngredientNamePlaceholder')}
                         placeholderTextColor={theme.textSecondary}
                         value={draft.name}
                         onChangeText={(text) => updateIngredientDraft(index, { name: text })}
+                        onFocus={recipeComposerBlur.onFocus}
+                        onBlur={recipeComposerBlur.onBlur}
                       />
                       <TextInput
                         style={[styles.input, styles.ingredientQuantityInput, { color: theme.text, backgroundColor: theme.backgroundSelected }]}
-                        placeholder="Qty"
+                        placeholder={t('recipeIngredientQtyPlaceholder')}
                         placeholderTextColor={theme.textSecondary}
                         value={draft.quantity}
                         onChangeText={(text) => updateIngredientDraft(index, { quantity: text })}
+                        onFocus={recipeComposerBlur.onFocus}
+                        onBlur={recipeComposerBlur.onBlur}
                       />
-                      <Pressable onPress={() => removeIngredientRow(index)} hitSlop={8}>
+                      <Pressable onPressIn={recipeComposerBlur.onFocus} onPress={() => removeIngredientRow(index)} hitSlop={8}>
                         <ThemedText themeColor="textSecondary" style={styles.deleteIcon}>
                           ×
                         </ThemedText>
                       </Pressable>
                     </View>
                   ))}
-                  <Pressable onPress={addIngredientRow} hitSlop={8}>
+                  <Pressable onPressIn={recipeComposerBlur.onFocus} onPress={addIngredientRow} hitSlop={8}>
                     <ThemedText type="small" themeColor="accent">
-                      + Add ingredient
+                      {t('recipeAddIngredientButton')}
                     </ThemedText>
                   </Pressable>
 
                   <TextInput
                     style={[styles.input, styles.instructionsInput, { color: theme.text, backgroundColor: theme.backgroundSelected }]}
-                    placeholder="Instructions (optional)"
+                    placeholder={t('recipeInstructionsPlaceholder')}
                     placeholderTextColor={theme.textSecondary}
                     value={recipeInstructions}
                     onChangeText={setRecipeInstructions}
+                    onFocus={recipeComposerBlur.onFocus}
+                    onBlur={recipeComposerBlur.onBlur}
                     multiline
                   />
 
@@ -949,7 +1017,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                       <ActivityIndicator color={theme.background} />
                     ) : (
                       <ThemedText type="smallBold" themeColor="background">
-                        {editingRecipeId ? 'Save changes' : 'Add recipe'}
+                        {editingRecipeId ? t('saveChanges') : t('recipeAddButton')}
                       </ThemedText>
                     )}
                   </Pressable>
@@ -968,7 +1036,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                   recipeCategoryFilter === 'all' && { backgroundColor: theme.accent },
                 ]}>
                 <ThemedText type="small" themeColor={recipeCategoryFilter === 'all' ? 'background' : 'textSecondary'}>
-                  All
+                  {t('allFilter')}
                 </ThemedText>
               </Pressable>
               {usedRecipeCategories.map((c) => (
@@ -981,7 +1049,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                     recipeCategoryFilter === c.value && { backgroundColor: theme.accent },
                   ]}>
                   <ThemedText type="small" themeColor={recipeCategoryFilter === c.value ? 'background' : 'textSecondary'}>
-                    {c.label}
+                    {t(RECIPE_CATEGORY_KEY[c.value] ?? 'recipeCategoryOther')}
                   </ThemedText>
                 </Pressable>
               ))}
@@ -994,7 +1062,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
             <View style={styles.emptyState}>
               <GroceriesIcon color={theme.backgroundSelected} size={40} />
               <ThemedText themeColor="textSecondary" style={styles.emptyText}>
-                No recipes yet — add your first one above.
+                {t('recipeEmptyState')}
               </ThemedText>
             </View>
           )}
@@ -1008,8 +1076,8 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                     <View style={styles.templateNameColumn}>
                       <ThemedText type="default">{recipe.title}</ThemedText>
                       <ThemedText type="small" themeColor="textSecondary">
-                        {recipeCategoryLabel(recipe.category)}
-                        {recipe.servings ? ` · Serves ${recipe.servings}` : ''}
+                        {t(RECIPE_CATEGORY_KEY[recipe.category] ?? 'recipeCategoryOther')}
+                        {recipe.servings ? t('recipeServesCaption', { count: recipe.servings }) : ''}
                       </ThemedText>
                     </View>
                     <ThemedText themeColor="textSecondary" style={styles.chevron}>
@@ -1034,17 +1102,17 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                     <View style={styles.recipeActionsRow}>
                       <Pressable onPress={() => handleAddRecipeIngredientsToList(recipe)} hitSlop={8}>
                         <ThemedView type="backgroundSelected" style={styles.useButton}>
-                          <ThemedText type="small">Add to list</ThemedText>
+                          <ThemedText type="small">{t('recipeAddIngredientsToList')}</ThemedText>
                         </ThemedView>
                       </Pressable>
                       <Pressable onPress={() => startEditRecipe(recipe)} hitSlop={8}>
                         <ThemedText type="small" themeColor="accent">
-                          Edit
+                          {t('edit')}
                         </ThemedText>
                       </Pressable>
                       <Pressable onPress={() => confirmDeleteRecipe(recipe)} hitSlop={8}>
                         <ThemedText type="small" style={styles.deleteText}>
-                          Delete
+                          {t('delete')}
                         </ThemedText>
                       </Pressable>
                     </View>
@@ -1071,7 +1139,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                 {addingWeekIngredients ? (
                   <ActivityIndicator color={theme.text} />
                 ) : (
-                  <ThemedText type="smallBold">🛒 Add this week&apos;s ingredients to the list</ThemedText>
+                  <ThemedText type="smallBold">{t('groceryAddWeekIngredients')}</ThemedText>
                 )}
               </ThemedView>
             </Pressable>
@@ -1087,9 +1155,9 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
               <ThemedView key={dateIso} type="backgroundElement" style={styles.dayCard}>
                 <View style={styles.dayHeaderRow}>
                   <View style={styles.templateNameColumn}>
-                    <ThemedText type="smallBold">{WEEKDAY_FULL[i]}</ThemedText>
+                    <ThemedText type="smallBold">{t(WEEKDAY_KEYS[i])}</ThemedText>
                     <ThemedText type="small" themeColor="textSecondary">
-                      {dayDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                      {formatMonthDay(dayDate, language)}
                     </ThemedText>
                   </View>
                   {plan && (
@@ -1108,18 +1176,18 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                         neither `recipe` nor `plan.title` (never set for a
                         recipe-linked plan) would be available, so this falls
                         back rather than rendering a blank, confusing row. */}
-                    <ThemedText type="default">{recipe ? recipe.title : (plan.title ?? 'Recipe removed')}</ThemedText>
+                    <ThemedText type="default">{recipe ? recipe.title : (plan.title ?? t('mealPlanRecipeRemoved'))}</ThemedText>
                     {recipe && (
                       <ThemedText type="small" themeColor="textSecondary">
-                        {recipeCategoryLabel(recipe.category)}
-                        {recipe.servings ? ` · Serves ${recipe.servings}` : ''}
+                        {t(RECIPE_CATEGORY_KEY[recipe.category] ?? 'recipeCategoryOther')}
+                        {recipe.servings ? t('recipeServesCaption', { count: recipe.servings }) : ''}
                       </ThemedText>
                     )}
                   </Pressable>
                 ) : !isComposerOpen ? (
                   <Pressable onPress={() => openMealComposer(dateIso)} hitSlop={8}>
                     <ThemedText type="small" themeColor="accent">
-                      + Plan a dinner
+                      {t('mealPlanAddButton')}
                     </ThemedText>
                   </Pressable>
                 ) : null}
@@ -1128,11 +1196,11 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                   <View style={styles.mealComposer}>
                     <View style={styles.editingRow}>
                       <ThemedText type="small" themeColor="textSecondary">
-                        {plan ? 'Change dinner' : 'Plan dinner'}
+                        {plan ? t('mealPlanChangeHeading') : t('mealPlanAddHeading')}
                       </ThemedText>
                       <Pressable onPress={closeMealComposer} hitSlop={8}>
                         <ThemedText type="small" themeColor="accent">
-                          Cancel
+                          {t('cancel')}
                         </ThemedText>
                       </Pressable>
                     </View>
@@ -1149,7 +1217,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                             mealPickMode === pm && { backgroundColor: theme.accent },
                           ]}>
                           <ThemedText type="small" themeColor={mealPickMode === pm ? 'background' : 'textSecondary'}>
-                            {pm === 'recipe' ? 'Saved recipe' : 'Something else'}
+                            {pm === 'recipe' ? t('mealPlanModeRecipe') : t('mealPlanModeCustom')}
                           </ThemedText>
                         </Pressable>
                       ))}
@@ -1158,7 +1226,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                     {mealPickMode === 'recipe' ? (
                       recipes.length === 0 ? (
                         <ThemedText type="small" themeColor="textSecondary">
-                          No saved recipes yet — add one in the Recipes tab, or plan something else below.
+                          {t('mealPlanNoRecipesHint')}
                         </ThemedText>
                       ) : (
                         <View style={styles.mealRecipeList}>
@@ -1179,7 +1247,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                       <>
                         <TextInput
                           style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
-                          placeholder="e.g. Takeout, Leftovers…"
+                          placeholder={t('mealPlanCustomTitlePlaceholder')}
                           placeholderTextColor={theme.textSecondary}
                           value={mealCustomTitle}
                           onChangeText={setMealCustomTitle}
@@ -1194,7 +1262,7 @@ export function GroceriesSection({ onBack }: { onBack: () => void }) {
                           disabled={!mealCustomTitle.trim() || mealSubmitting}
                           onPress={handleSaveCustomMeal}>
                           <ThemedText type="smallBold" themeColor="background">
-                            Save
+                            {t('save')}
                           </ThemedText>
                         </Pressable>
                       </>
@@ -1219,7 +1287,13 @@ const styles = StyleSheet.create({
   editingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   input: { fontSize: 16, paddingVertical: Spacing.one, paddingHorizontal: Spacing.two, borderRadius: Spacing.two },
   quantityInput: { marginTop: Spacing.one },
-  pillRow: { flexGrow: 0 },
+  // flexShrink: 1 + minWidth: 0 — see kids-section.tsx's identical
+  // pillRow comment (RN's flexShrink defaults to 0 for a plain
+  // ScrollView, and web's min-width:auto blocks shrinking even with
+  // flexShrink set) — without both, a pill row wider than its card
+  // overflows the rounded edge and clips the last pill instead of
+  // scrolling to it (found on the grocery category filter row).
+  pillRow: { flexGrow: 0, flexShrink: 1, minWidth: 0 },
   pill: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.one, borderRadius: 999, marginRight: Spacing.two },
   addButton: { alignItems: 'center', paddingVertical: Spacing.two, borderRadius: Spacing.two, marginTop: Spacing.one },
   saveButtonDisabled: { opacity: 0.5 },
@@ -1239,14 +1313,18 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
     borderRadius: Spacing.three,
   },
-  itemTextWrapper: { flex: 1, gap: Spacing.half },
+  // minWidth: 0 — same web flexbox fix as pillRow above: without it, a
+  // long item name won't shrink to wrap and instead overflows past the
+  // card's edge.
+  itemTextWrapper: { flex: 1, minWidth: 0, gap: Spacing.half },
   doneText: { textDecorationLine: 'line-through' },
   deleteIcon: { fontSize: 24, lineHeight: 24, paddingHorizontal: Spacing.one },
   deleteText: { color: '#e5484d' },
   saveTemplateRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   saveTemplateInput: { flex: 1, minWidth: 0 },
   templateRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  templateNameColumn: { flex: 1, gap: Spacing.half },
+  // minWidth: 0 — same web flexbox fix as pillRow above.
+  templateNameColumn: { flex: 1, minWidth: 0, gap: Spacing.half },
   templateEditor: { gap: Spacing.two, paddingLeft: Spacing.three, marginTop: Spacing.one, marginBottom: Spacing.two },
   addCurrentListButton: { alignItems: 'center', paddingVertical: Spacing.two, borderRadius: Spacing.two },
   useButton: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, borderRadius: Spacing.five },

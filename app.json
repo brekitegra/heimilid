@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "heimilid",
+    "name": "Heimilið",
     "slug": "heimilid",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,9 +8,14 @@
     "scheme": "heimilid",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/images/icon.png"
+      "icon": "./assets/images/icon.png",
+      "bundleIdentifier": "is.heimilid.app",
+      "buildNumber": "1",
+      "supportsTablet": false
     },
     "android": {
+      "package": "is.heimilid.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#FBF7F0",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -34,7 +39,15 @@
         }
       ],
       "expo-image",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Heimilið needs access to your photos so you can set a profile picture, or a photo for a pet or child.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

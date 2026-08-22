@@ -14,6 +14,7 @@ import Svg, { Line, Polygon, Rect } from 'react-native-svg';
 
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
+import { useTranslation } from '@/hooks/use-language';
 import { useTheme } from '@/hooks/use-theme';
 
 // The house is drawn 1:1 with the SVG viewBox below, so door/window
@@ -47,6 +48,7 @@ const EXIT_MS = 380;
  */
 export function HouseDoorIntro() {
   const theme = useTheme();
+  const t = useTranslation();
   const [visible, setVisible] = useState(true);
   const finishedRef = useRef(false);
 
@@ -121,7 +123,7 @@ export function HouseDoorIntro() {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Skip intro animation"
+      accessibilityLabel={t('houseDoorSkipA11yLabel')}
       style={[styles.overlay, { backgroundColor: theme.background }]}
       onPress={skip}>
       <Animated.View style={[styles.content, overlayStyle]}>
@@ -152,7 +154,7 @@ export function HouseDoorIntro() {
         </Animated.View>
 
         <ThemedText type="small" themeColor="textSecondary" style={styles.hint}>
-          Tap to skip
+          {t('houseDoorTapToSkip')}
         </ThemedText>
       </Animated.View>
     </Pressable>

@@ -13,20 +13,24 @@ import { isBillPaidNow, useBills } from '@/hooks/use-bills';
 import { useDelayedBlur } from '@/hooks/use-delayed-blur';
 import { useHousehold } from '@/hooks/use-household';
 import { useIncome } from '@/hooks/use-income';
+import { useLanguage, useTranslation, type Language, type TranslationKey } from '@/hooks/use-language';
 import { useTheme } from '@/hooks/use-theme';
 import { showAlert } from '@/lib/alert';
 import { formatBillStreak, formatDueDay, formatLastPaid } from '@/lib/bill-format';
 import { formatCurrency } from '@/lib/currency-format';
-import { parseAmount } from '@/lib/number-format';
+import { isSameName } from '@/lib/duplicate-check';
+import { formatAmountInput, parseAmount, sanitizeNumericInput } from '@/lib/number-format';
 import type { Bill, BillFrequency, BillInput } from '@/types/bill';
 
-const FREQUENCIES: { value: BillFrequency; label: string }[] = [
-  { value: 'once', label: 'Once' },
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'yearly', label: 'Yearly' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'daily', label: 'Daily' },
-];
+const FREQUENCY_ORDER: BillFrequency[] = ['once', 'monthly', 'yearly', 'weekly', 'daily'];
+
+const FREQUENCY_KEYS: Record<BillFrequency, TranslationKey> = {
+  once: 'frequencyOnce',
+  monthly: 'frequencyMonthly',
+  yearly: 'frequencyYearly',
+  weekly: 'frequencyWeekly',
+  daily: 'frequencyDaily',
+};
 
 const OVERDUE_COLOR = '#e5484d';
 const SIDE_BY_SIDE_BREAKPOINT = 700;
@@ -36,20 +40,20 @@ const SIDE_BY_SIDE_BREAKPOINT = 700;
  * chores-section.tsx's buildMeta exactly. */
 type MetaPart = { text: string; warn?: boolean };
 
-function buildMeta(bill: Bill): MetaPart[] {
-  const parts: MetaPart[] = [{ text: FREQUENCIES.find((f) => f.value === bill.frequency)?.label ?? '' }];
+function buildMeta(bill: Bill, t: ReturnType<typeof useTranslation>, language: Language): MetaPart[] {
+  const parts: MetaPart[] = [{ text: t(FREQUENCY_KEYS[bill.frequency]) }];
   const paid = isBillPaidNow(bill);
 
   if (bill.frequency === 'once') {
     if (!bill.is_paid) {
-      const due = formatDueDay(bill.due_day);
+      const due = formatDueDay(bill.due_day, new Date(), language);
       if (due) parts.push({ text: due.text, warn: due.overdue });
     }
   } else {
-    const streak = formatBillStreak(bill);
+    const streak = formatBillStreak(bill, language);
     if (streak) parts.push({ text: streak });
     if (!paid) {
-      const lastPaid = formatLastPaid(bill);
+      const lastPaid = formatLastPaid(bill, new Date(), language);
       if (lastPaid) parts.push({ text: lastPaid });
     }
   }
@@ -58,6 +62,8 @@ function buildMeta(bill: Bill): MetaPart[] {
 }
 
 export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
+  const t = useTranslation();
+  const { language } = useLanguage();
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const isWideLayout = width >= SIDE_BY_SIDE_BREAKPOINT;
@@ -82,7 +88,7 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
     // computable from render, since the user needs to be able to type
     // over it.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIncomeDraft(myIncome ? String(myIncome.monthly_amount) : '');
+    setIncomeDraft(myIncome ? formatAmountInput(String(myIncome.monthly_amount)) : '');
   }, [myIncome]);
   const incomeDirty = parseAmount(incomeDraft) !== Number(myIncome?.monthly_amount ?? 0);
 
@@ -90,7 +96,7 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
     try {
       await setMonthlyIncome(parseAmount(incomeDraft));
     } catch (err) {
-      showAlert("Couldn't save income", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('financesExpensesSaveIncomeError'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
@@ -108,7 +114,7 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
   function startEdit(bill: Bill) {
     setEditingId(bill.id);
     setName(bill.name);
-    setAmount(String(bill.amount));
+    setAmount(formatAmountInput(String(bill.amount)));
     setFrequency(bill.frequency);
     setDueDay(bill.due_day ? String(bill.due_day) : '');
     scrollRef.current?.scrollTo({ y: 0, animated: true });
@@ -116,6 +122,11 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
 
   async function handleSubmit() {
     if (!name.trim() || !amount.trim()) return;
+    const duplicate = bills.find((b) => b.id !== editingId && !isBillPaidNow(b) && isSameName(b.name, name));
+    if (duplicate) {
+      showAlert(t('financesExpensesDuplicateTitle'), t('financesExpensesDuplicateMessage', { name: duplicate.name }));
+      return;
+    }
     const input: BillInput = {
       name,
       amount: parseAmount(amount),
@@ -133,7 +144,7 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
       }
       resetForm();
     } catch (err) {
-      showAlert(editingId ? "Couldn't save changes" : "Couldn't add expense", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(editingId ? t('financesSaveChangesError') : t('financesExpensesAddError'), err instanceof Error ? err.message : t('genericErrorMessage'));
     } finally {
       setSubmitting(false);
     }
@@ -143,19 +154,19 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
     try {
       await toggleBill(bill);
     } catch (err) {
-      showAlert("Couldn't update expense", err instanceof Error ? err.message : 'Something went wrong');
+      showAlert(t('financesExpensesToggleError'), err instanceof Error ? err.message : t('genericErrorMessage'));
     }
   }
 
   function confirmDelete(bill: Bill) {
-    showAlert('Delete expense', `Remove "${bill.name}"?`, [
-      { text: 'Cancel', style: 'cancel' },
+    showAlert(t('financesExpensesDeleteTitle'), t('financesExpensesDeleteMessage', { name: bill.name }), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('delete'),
         style: 'destructive',
         onPress: () => {
           if (editingId === bill.id) resetForm();
-          deleteBill(bill).catch((err) => showAlert("Couldn't delete expense", err instanceof Error ? err.message : 'Something went wrong'));
+          deleteBill(bill).catch((err) => showAlert(t('financesExpensesDeleteError'), err instanceof Error ? err.message : t('genericErrorMessage')));
         },
       },
     ]);
@@ -174,7 +185,7 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
 
   function renderBillRow(bill: Bill) {
     const paid = isBillPaidNow(bill);
-    const meta = buildMeta(bill);
+    const meta = buildMeta(bill, t, language);
 
     return (
       <Animated.View key={bill.id} layout={LinearTransition.duration(220)} exiting={FadeOut.duration(300)}>
@@ -211,26 +222,26 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <BackButton label="Finances" onPress={onBack} />
+        <BackButton label={t('financesTitle')} onPress={onBack} />
       </View>
 
-      <CollapsibleCard title="INCOME">
+      <CollapsibleCard title={t('financesIncomeSectionHeader')}>
         <View style={styles.incomeRow}>
           <ThemedText type="small" themeColor="textSecondary" style={styles.incomeLabel}>
-            Your monthly income
+            {t('financesYourMonthlyIncome')}
           </ThemedText>
           <TextInput
             style={[styles.input, styles.incomeInput, { color: theme.text, backgroundColor: theme.background }]}
-            placeholder="0"
+            placeholder={t('financesIncomeAmountPlaceholder')}
             placeholderTextColor={theme.textSecondary}
             keyboardType="number-pad"
             value={incomeDraft}
-            onChangeText={setIncomeDraft}
+            onChangeText={(v) => setIncomeDraft(formatAmountInput(v))}
           />
           {incomeDirty && (
             <Pressable onPress={handleSaveIncome} disabled={savingIncome} hitSlop={8}>
               <ThemedText type="smallBold" themeColor="accent">
-                {savingIncome ? 'Saving…' : 'Save'}
+                {savingIncome ? t('saving') : t('save')}
               </ThemedText>
             </Pressable>
           )}
@@ -243,7 +254,7 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
             return (
               <View key={m.user_id} style={styles.incomeRow}>
                 <ThemedText type="small" themeColor="textSecondary" style={styles.incomeLabel}>
-                  {m.profile?.full_name ?? 'Household member'}
+                  {m.profile?.full_name ?? t('financesHouseholdMemberFallback')}
                 </ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
                   {formatCurrency(Number(memberIncome?.monthly_amount ?? 0))}
@@ -253,8 +264,11 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
           })}
 
         <View style={[styles.incomeRow, styles.incomeTotalRow, { borderTopColor: theme.background }]}>
-          <ThemedText type="smallBold">Household total</ThemedText>
-          <ThemedText type="smallBold">{formatCurrency(householdTotal)}/mo</ThemedText>
+          <ThemedText type="smallBold">{t('financesHouseholdTotalLabel')}</ThemedText>
+          <ThemedText type="smallBold">
+            {formatCurrency(householdTotal)}
+            {language === 'is' ? '/mán' : '/mo'}
+          </ThemedText>
         </View>
       </CollapsibleCard>
 
@@ -262,10 +276,10 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
         <ThemedView type="backgroundElement" style={styles.addCard}>
           {editingId && (
             <View style={styles.editingRow}>
-              <ThemedText type="smallBold">Edit expense</ThemedText>
+              <ThemedText type="smallBold">{t('financesEditExpenseTitle')}</ThemedText>
               <Pressable onPress={resetForm} hitSlop={8}>
                 <ThemedText type="small" themeColor="accent">
-                  Cancel
+                  {t('cancel')}
                 </ThemedText>
               </Pressable>
             </View>
@@ -273,7 +287,7 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
 
           <TextInput
             style={[styles.input, { color: theme.text }]}
-            placeholder="Add an expense…"
+            placeholder={t('financesAddExpensePlaceholder')}
             placeholderTextColor={theme.textSecondary}
             value={name}
             onChangeText={setName}
@@ -287,30 +301,35 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
               <View style={styles.amountDueRow}>
                 <TextInput
                   style={[styles.input, styles.amountInput, { color: theme.text, backgroundColor: theme.background }]}
-                  placeholder="Amount (kr.)"
+                  placeholder={t('financesAmountPlaceholder')}
                   placeholderTextColor={theme.textSecondary}
                   keyboardType="number-pad"
                   value={amount}
-                  onChangeText={setAmount}
+                  onChangeText={(v) => setAmount(formatAmountInput(v))}
+                  onFocus={composerBlur.onFocus}
+                  onBlur={composerBlur.onBlur}
                 />
                 <TextInput
                   style={[styles.input, styles.dueDayInput, { color: theme.text, backgroundColor: theme.background }]}
-                  placeholder="Due day"
+                  placeholder={t('financesDueDayPlaceholder')}
                   placeholderTextColor={theme.textSecondary}
                   keyboardType="number-pad"
                   value={dueDay}
-                  onChangeText={setDueDay}
+                  onChangeText={(v) => setDueDay(sanitizeNumericInput(v))}
+                  onFocus={composerBlur.onFocus}
+                  onBlur={composerBlur.onBlur}
                 />
               </View>
 
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
-                {FREQUENCIES.map((f) => (
+                {FREQUENCY_ORDER.map((freq) => (
                   <Pressable
-                    key={f.value}
-                    onPress={() => setFrequency(f.value)}
-                    style={[styles.pill, { backgroundColor: theme.backgroundSelected }, frequency === f.value && { backgroundColor: theme.accent }]}>
-                    <ThemedText type="small" themeColor={frequency === f.value ? 'background' : 'textSecondary'}>
-                      {f.label}
+                    key={freq}
+                    onPressIn={composerBlur.onFocus}
+                    onPress={() => setFrequency(freq)}
+                    style={[styles.pill, { backgroundColor: theme.backgroundSelected }, frequency === freq && { backgroundColor: theme.accent }]}>
+                    <ThemedText type="small" themeColor={frequency === freq ? 'background' : 'textSecondary'}>
+                      {t(FREQUENCY_KEYS[freq])}
                     </ThemedText>
                   </Pressable>
                 ))}
@@ -321,7 +340,7 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
                 disabled={!name.trim() || !amount.trim() || submitting}
                 onPress={handleSubmit}>
                 <ThemedText type="smallBold" themeColor="background">
-                  {editingId ? 'Save changes' : 'Add'}
+                  {editingId ? t('saveChanges') : t('add')}
                 </ThemedText>
               </Pressable>
             </>
@@ -336,7 +355,7 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
           <View style={styles.emptyState}>
             <ExpensesIcon color={theme.backgroundSelected} size={40} />
             <ThemedText themeColor="textSecondary" style={styles.emptyText}>
-              No expenses yet — add your first one above.
+              {t('financesExpensesEmptyState')}
             </ThemedText>
           </View>
         )}
@@ -345,25 +364,25 @@ export function FinancesExpensesSection({ onBack }: { onBack: () => void }) {
           <View style={isWideLayout ? styles.groupsRow : styles.groupsColumn}>
             <View style={[styles.groupCard, isWideLayout && styles.groupCardFlex, { borderColor: theme.backgroundSelected }]}>
               <ThemedText type="small" themeColor="textSecondary" style={styles.groupCardHeader}>
-                RECURRING
+                {t('financesRecurringGroupHeader')}
               </ThemedText>
               {recurringBills.length > 0 ? (
                 recurringBills.map(renderBillRow)
               ) : (
                 <ThemedText type="small" themeColor="textSecondary" style={styles.groupEmptyText}>
-                  No recurring expenses yet
+                  {t('financesNoRecurringExpenses')}
                 </ThemedText>
               )}
             </View>
             <View style={[styles.groupCard, isWideLayout && styles.groupCardFlex, { borderColor: theme.backgroundSelected }]}>
               <ThemedText type="small" themeColor="textSecondary" style={styles.groupCardHeader}>
-                ONE-TIME
+                {t('financesOneTimeGroupHeader')}
               </ThemedText>
               {oneTimeBills.length > 0 ? (
                 oneTimeBills.map(renderBillRow)
               ) : (
                 <ThemedText type="small" themeColor="textSecondary" style={styles.groupEmptyText}>
-                  No one-time expenses yet
+                  {t('financesNoOneTimeExpenses')}
                 </ThemedText>
               )}
             </View>
@@ -386,7 +405,12 @@ const styles = StyleSheet.create({
   // and the row overflows instead of splitting per the flex ratio.
   amountInput: { flex: 2, minWidth: 0, paddingHorizontal: Spacing.two, borderRadius: Spacing.two },
   dueDayInput: { flex: 1, minWidth: 0, paddingHorizontal: Spacing.two, borderRadius: Spacing.two },
-  pillRow: { flexGrow: 0 },
+  // flexShrink: 1 + minWidth: 0 — see kids-section.tsx's identical
+  // pillRow comment (RN's flexShrink defaults to 0 for a plain
+  // ScrollView, and web's min-width:auto blocks shrinking even with
+  // flexShrink set) — without both, a pill row wider than its card
+  // overflows the rounded edge and clips the last pill.
+  pillRow: { flexGrow: 0, flexShrink: 1, minWidth: 0 },
   pill: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.one, borderRadius: 999, marginRight: Spacing.two },
   addButton: { alignItems: 'center', paddingVertical: Spacing.two, borderRadius: Spacing.two, marginTop: Spacing.one },
   list: { flex: 1 },
@@ -408,7 +432,10 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
     borderRadius: Spacing.three,
   },
-  billTextWrapper: { flex: 1, gap: Spacing.half },
+  // minWidth: 0 — same web flexbox fix as pillRow above: without it, a
+  // long expense name won't shrink to wrap and instead overflows past
+  // the card's edge.
+  billTextWrapper: { flex: 1, minWidth: 0, gap: Spacing.half },
   billTitleRow: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.two },
   doneText: { textDecorationLine: 'line-through' },
   deleteIcon: { fontSize: 24, lineHeight: 24, paddingHorizontal: Spacing.one },
